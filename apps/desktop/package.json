@@ -2,11 +2,24 @@
   "name": "@runwitness/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Desktop shell for RunWitness operator experiences.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19"
   }
 }

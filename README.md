@@ -15,7 +15,7 @@ RunWitness is not trying to replace OpenClaw, Hermes, Codex, Claude Code, local 
 
 ## Alpha Status
 
-RunWitness is ready for a GitHub alpha launch. It is useful today for local witnessed commands, policy decisions, receipts, sandbox preflight, rollback evidence, and adapter event capture. It is not a hard OS sandbox, hosted multi-user control plane, or universal secret boundary.
+RunWitness is ready for a GitHub alpha launch. It is useful today for local witnessed commands, policy decisions, receipts, sandbox preflight, opt-in Docker/Podman sandbox execution, rollback evidence, adapter event capture, hashed operator auth, and the live local cockpit. It is not a hosted SaaS control plane, universal secret boundary, or complete nested-agent tracer.
 
 Launch and trust docs:
 
@@ -47,7 +47,7 @@ RunWitness makes witnessed work inspectable:
 - **Policy**: local rules that classify actions as allowed, denied, or approval-required.
 - **Skill**: a reusable capability with declared permissions, canonical digesting, and optional signature verification.
 - **Approval**: a recorded human or non-interactive decision for a risky action.
-- **Adapter**: a bridge between RunWitness and the thing doing work, starting with local shell commands, command-wrapper foundations for OpenClaw and Hermes, and generic wrappers for browser automation, MCP, CI, and deployment systems.
+- **Adapter**: a bridge between RunWitness and the thing doing work, starting with local shell commands, command-wrapper and native HTTP/SSE foundations for OpenClaw and Hermes, and generic wrappers for browser automation, MCP, CI, and deployment systems.
 
 ## Quick Start
 
@@ -89,10 +89,22 @@ Start the operator API with bearer auth without printing the token:
 RUNWITNESS_OPERATOR_TOKEN=change-me npm run rw -- serve --auth-token-env RUNWITNESS_OPERATOR_TOKEN --operator-role approver
 ```
 
+Start the operator API from a hosted-style hashed credential config:
+
+```bash
+npm run rw -- serve --hosted-auth-config ./hosted-auth.json --data-dir .runwitness
+```
+
 Run with the local sandbox primitives enabled:
 
 ```bash
 npm run rw -- run --sandbox --write-allow src --protect .env --task "Sandbox smoke" -- node -e "console.log('sandboxed cwd')"
+```
+
+Dry-run an enforced container sandbox invocation before executing it:
+
+```bash
+npm run rw -- sandbox container --image node:22-alpine --dry-run -- node --version
 ```
 
 Run with network preflight and rollback evidence:
@@ -141,17 +153,17 @@ Implemented foundation:
 - Phase 2: run ledger MVP with SQLite, append-only events, command tracking, file-change tracking, test-result tracking, and receipt export.
 - Phase 3 foundation: protected policy/auth approval foundations, including layered policy loading through CLI run/check/explain paths, source and effective-policy digests, protected policy-source paths, receipt policy lineage, durable pending approvals, and optional bearer-token operator auth with roles plus user/workspace scopes.
 - Phase 4 foundation: YAML skill manifest parsing, canonical digesting, permission risk summaries, Ed25519 signature verification, local trust registry checks, install/quarantine assessment, runtime permission check helpers for shell, filesystem, network, and named secrets, and a brokered skill-runner helper that blocks execution unless requested actions are allowed.
-- Phase 5 foundation: hardened local sandbox primitives, including write preflight, network preflight, path safety checks, protected path deny lists, filtered environment and PATH construction, isolated temporary workspaces, auditable process isolation plans, rollback baseline/bundle creation, and opt-in rollback dry-run/apply orchestration for failed commands.
-- Phase 6 foundation: streaming adapter contract, registry, local-command adapter streaming, OpenClaw/Hermes command-wrapper adapters, and generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters that normalize structured events when available while marking unexposed nested activity as opaque.
+- Phase 5 foundation: hardened local sandbox primitives, including write preflight, network preflight, path safety checks, protected path deny lists, filtered environment and PATH construction, isolated temporary workspaces, auditable process isolation plans, opt-in Docker/Podman sandbox execution, rollback baseline/bundle creation, and opt-in rollback dry-run/apply orchestration for failed commands.
+- Phase 6 foundation: streaming adapter contract, registry, local-command adapter streaming, OpenClaw/Hermes command-wrapper adapters, opt-in native HTTP/SSE adapters for OpenClaw and Hermes, and generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters that normalize structured events when available while marking unexposed nested activity as opaque.
 - Phase 7 foundation: static and live operator cockpit renderers plus a local operator API for runs, timelines, approvals, receipts, authenticated Server-Sent Events snapshots, approval actions, operator identity/session display, and policy-lineage views.
-- Phase 8 foundation: identity and secret isolation primitives, including workspace roles, explicit secret grants, local secret broker descriptors, encrypted local vault storage, command-output redaction hooks, `--redact-secret-env`, redacted access audit/receipt records, user/workspace scoped operator views, scoped operator principals, secret-like environment filtering, and skill secret permission declarations/checks.
+- Phase 8 foundation: identity and secret isolation primitives, including workspace roles, explicit secret grants, local secret broker descriptors, encrypted local vault storage, command-output redaction hooks, `--redact-secret-env`, redacted access audit/receipt records, hashed hosted operator auth configs, user/workspace scoped operator views, scoped operator principals, secret-like environment filtering, and skill secret permission declarations/checks.
 
 Planned hardening:
 
-- Turn process isolation plans into OS-backed runners and add network egress enforcement around local execution.
-- Add richer direct native adapters for agent runtimes beyond command/JSONL wrappers.
+- Wire enforced sandbox execution into more orchestrator paths and add network egress enforcement around local execution beyond container runtime modes.
+- Broaden native adapters for agent runtimes beyond the initial OpenClaw/Hermes HTTP/SSE foundations.
 - Package the live cockpit as a fuller browser/desktop app and keep policy writes disabled until authenticated validation/auditing is complete.
-- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization.
+- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization views.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/NEXT_PHASES.md](docs/NEXT_PHASES.md) for the current hardening plan.
 
@@ -163,11 +175,11 @@ apps/
   web/        Static and live operator cockpit renderer.
   desktop/    Planned desktop shell.
 packages/
-  adapters/   Adapter contract, registry, local bridge, OpenClaw/Hermes and generic tool wrappers.
+  adapters/   Adapter contract, registry, local bridge, OpenClaw/Hermes wrappers and native HTTP/SSE adapters.
   core/       Run types, ids, event ledger, orchestration, and operator API.
   policy/     Shell risk classification, YAML policies, and approval record helpers.
   receipts/   Receipt and proof-bundle exporters.
-  sandbox/    Snapshots, preflight, filtered envs, temp workspaces, path safety, rollback, isolation plans.
+  sandbox/    Snapshots, preflight, filtered envs, temp workspaces, path safety, rollback, isolation plans/runners.
   skills/     Skill manifests, digests, trust checks, brokered runtime permission checks.
   ui/         Shared operator cockpit rendering helpers.
 docs/
@@ -177,8 +189,8 @@ tests/
 
 ## Safety Posture
 
-RunWitness starts with observation, policy decisions, local approvals, sandbox preflight primitives, scoped local operator access, and receipt generation. It now has foundations for policy hierarchy, skill trust and broker checks, sandboxed temporary workspaces, auditable isolation plans, rollback workflows, streaming adapters, live cockpit rendering, and user/secret isolation primitives.
+RunWitness starts with observation, policy decisions, local approvals, sandbox preflight primitives, scoped local operator access, and receipt generation. It now has foundations for policy hierarchy, skill trust and broker checks, sandboxed temporary workspaces, opt-in container-backed sandbox execution, rollback workflows, streaming adapters, live cockpit rendering, and user/secret isolation primitives.
 
-Those foundations are not the same as OS-level perfect isolation. Commands still execute through host processes unless a future runner enforces a stronger boundary, network egress is preflighted but not blocked at the OS layer by RunWitness, nested tool activity is only visible when an adapter exposes it, rollback is opt-in and not guaranteed across all failure modes, and vault/broker primitives are not yet a universal runtime credential boundary.
+Those foundations are not the same as OS-level perfect isolation. Normal witnessed commands still execute through host processes unless the operator chooses the container sandbox path, network egress is preflighted or delegated to container runtime modes but not universally blocked by RunWitness, nested tool activity is only visible when an adapter exposes it, rollback is opt-in and not guaranteed across all failure modes, and vault/broker primitives are not yet a universal runtime credential boundary.
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the security model and current limits.

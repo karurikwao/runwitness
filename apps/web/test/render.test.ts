@@ -65,19 +65,75 @@ describe("web cockpit renderer", () => {
     expect(html).toMatch(/^<!doctype html>/);
     expect(html).toContain("<title>Operator Cockpit | RunWitness</title>");
     expect(html).toContain("<style>");
+    expect(html).toContain('aria-label="Cockpit sections"');
+    expect(html).toContain('aria-label="Cockpit status summary"');
+    expect(html).toContain('data-summary-value="health"');
+    expect(html).toContain('data-operator-session');
     expect(html).toContain("Verify receipts");
     expect(html).toContain("Effective policy digest");
     expect(html).toContain("sha256:policy-digest");
     expect(html).toContain("Recursive delete");
     expect(html).toContain("Receipt Markdown");
     expect(html).toContain("sha256:receipt-digest");
+    expect(html).toContain("Policy edit unavailable");
   });
 
   it("can render just the body for embedding", () => {
     const body = renderWebCockpitBody(createCockpitViewModel({ generatedAt: "2026-07-05T12:00:00.000Z" }));
 
-    expect(body).toContain('<main class="rw-shell">');
+    expect(body).toContain('<main class="rw-shell rw-cockpit"');
     expect(body).not.toContain("<html");
+  });
+
+  it("renders redesigned navigation, summary cards, and responsive run controls", () => {
+    const body = renderWebCockpitBody(
+      createCockpitViewModel({
+        generatedAt: "2026-07-05T12:00:00.000Z",
+        selectedRunId: "rw_selected",
+        runs: [
+          {
+            id: "rw_selected",
+            task: "Audit cockpit",
+            agent: "worker-6",
+            workspace: "C:/repo",
+            status: "running",
+            startedAt: "2026-07-05T12:00:00.000Z",
+            metrics: [{ label: "tests", value: 4, tone: "success" }],
+          },
+        ],
+      }),
+    );
+
+    expect(body).toContain('href="#rw-panel-runs"');
+    expect(body).toContain('data-refresh-cockpit');
+    expect(body).toContain('data-summary-card="approvals"');
+    expect(body).toContain('data-label="Workspace"');
+    expect(body).toContain('data-run-id="rw_selected"');
+    expect(body).toContain('aria-current="true"');
+    expect(body).toContain('aria-label="Select run rw_selected"');
+    expect(body).toContain("tests: 4");
+  });
+
+  it("keeps receipt links safe in the web cockpit pane", () => {
+    const html = renderWebCockpitBody(
+      createCockpitViewModel({
+        generatedAt: "2026-07-05T12:00:00.000Z",
+        receipts: [
+          {
+            id: "receipt_unsafe",
+            label: "Unsafe receipt",
+            kind: "artifact",
+            status: "passed",
+            capturedAt: "2026-07-05T12:02:00.000Z",
+            uri: "javascript:alert(1)",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("Unsafe receipt");
+    expect(html).toContain("javascript:alert(1)");
+    expect(html).not.toContain('href="javascript:alert(1)"');
   });
 
   it("reports the static renderer status", () => {
@@ -101,6 +157,10 @@ describe("web cockpit renderer", () => {
     expect(html).toContain("rw.token");
     expect(html).toContain("/operator/me");
     expect(html).toContain("data-operator-session");
+    expect(html).toContain("data-refresh-cockpit");
+    expect(html).toContain("updateStatusSummary");
+    expect(html).toContain("setSummary");
+    expect(html).toContain('data-label="Status"');
     expect(html).toContain("Operator roles");
     expect(html).toContain("role:");
     expect(html).toContain("workspace:");

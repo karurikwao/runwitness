@@ -75,19 +75,19 @@ An Approval is a recorded decision for a risky action. It is not a vague memory.
 
 ## Adapter
 
-An Adapter connects RunWitness to something that can do work. The current adapter registry includes streamed `local-command`, OpenClaw and Hermes command-wrapper foundations that require configured external tools, and generic browser automation, MCP, CI, and deployment command/JSONL wrappers.
+An Adapter connects RunWitness to something that can do work. The current adapter registry includes streamed `local-command`, OpenClaw and Hermes command-wrapper foundations that require configured external tools, opt-in native HTTP/SSE OpenClaw and Hermes adapters, and generic browser automation, MCP, CI, and deployment command/JSONL wrappers.
 
-Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness marks that portion of the run as opaque rather than implying full observability. Future native adapters can supervise Codex, Claude Code, MCP servers, CI jobs, browser automation, and deployment systems more deeply than generic wrappers.
+Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness marks that portion of the run as opaque rather than implying full observability. Native adapters can supervise configured HTTP/SSE runtimes more deeply than generic wrappers when those runtimes expose reliable start, event, artifact, and cancellation endpoints.
 
 ## Sandbox
 
-The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, network command preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, auditable process isolation plans, rollback bundle primitives, and rollback apply/dry-run helpers. The orchestrator can opt into rollback baseline/bundle creation and dry-run/apply behavior after failed commands.
+The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, network command preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, auditable process isolation plans, Docker/Podman sandbox invocation/execution helpers, rollback bundle primitives, and rollback apply/dry-run helpers. The orchestrator can opt into rollback baseline/bundle creation and dry-run/apply behavior after failed commands.
 
-Commands still run as host processes. Network access is detected from command text and can block a run before execution, but it is not blocked at the OS boundary. Nested process tracing is incomplete, and rollback orchestration is opt-in rather than guaranteed recovery across all failure modes.
+Normal witnessed commands still run as host processes unless an operator chooses the container sandbox path. Network access is detected from command text and can block a normal run before execution; container runs additionally delegate network mode enforcement to Docker or Podman. Nested process tracing is incomplete, and rollback orchestration is opt-in rather than guaranteed recovery across all failure modes.
 
 ## Operator
 
-An Operator is a human or service principal inspecting runs and deciding approvals. The local operator API can list runs, timelines, receipts, and pending approvals. It can optionally require bearer tokens with viewer, approver, or admin roles and user/workspace scopes.
+An Operator is a human or service principal inspecting runs and deciding approvals. The local operator API can list runs, timelines, receipts, and pending approvals. It can optionally require bearer tokens with viewer, approver, or admin roles and user/workspace scopes, including hosted-style hashed credential configs.
 
 The live cockpit renderer can poll the API, subscribe to event snapshots, post approval decisions, show operator identity/session state, and surface policy-lineage views. It is still a local cockpit foundation rather than a complete hosted multi-user control plane.
 

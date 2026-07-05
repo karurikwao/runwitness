@@ -2,15 +2,19 @@ import { createBrowserAutomationAdapter, type BrowserAutomationAdapterConfig } f
 import { createCiAdapter, type CiAdapterConfig } from "./ci.js";
 import { createDeploymentAdapter, type DeploymentAdapterConfig } from "./deployment.js";
 import { createHermesAdapter, type HermesAdapterConfig } from "./hermes.js";
+import { createHermesNativeAdapter, type HermesNativeAdapterConfig } from "./hermes-native.js";
 import { createLocalCommandAdapter, type LocalCommandAdapterOptions } from "./local-command.js";
 import { createMcpAdapter, type McpAdapterConfig } from "./mcp.js";
 import { createOpenClawAdapter, type OpenClawAdapterConfig } from "./openclaw.js";
+import { createOpenClawNativeAdapter, type OpenClawNativeAdapterConfig } from "./openclaw-native.js";
 import { AgentAdapterRegistry } from "./registry.js";
 
 export interface DefaultAdapterRegistryOptions {
   localCommand?: LocalCommandAdapterOptions | false;
   openClaw?: OpenClawAdapterConfig | false;
+  openClawNative?: OpenClawNativeAdapterConfig | false;
   hermes?: HermesAdapterConfig | false;
+  hermesNative?: HermesNativeAdapterConfig | false;
   browserAutomation?: BrowserAutomationAdapterConfig | false;
   mcp?: McpAdapterConfig | false;
   ci?: CiAdapterConfig | false;
@@ -26,8 +30,14 @@ export function createDefaultAdapterRegistry(options: DefaultAdapterRegistryOpti
   if (options.openClaw !== false) {
     registry.register(createOpenClawAdapter(options.openClaw));
   }
+  if (options.openClawNative) {
+    registry.register(createOpenClawNativeAdapter(options.openClawNative));
+  }
   if (options.hermes !== false) {
     registry.register(createHermesAdapter(options.hermes));
+  }
+  if (options.hermesNative) {
+    registry.register(createHermesNativeAdapter(options.hermesNative));
   }
   if (options.browserAutomation !== false) {
     registry.register(createBrowserAutomationAdapter(options.browserAutomation));

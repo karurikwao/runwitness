@@ -12,6 +12,8 @@
     "moduleDetection": "force",
     "rootDir": ".",
     "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
     "baseUrl": ".",
     "types": [
       "node"

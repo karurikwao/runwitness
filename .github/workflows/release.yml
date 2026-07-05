@@ -1,0 +1,45 @@
+name: Release Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_npm:
+        description: "Set RELEASE_NPM=true for intentional release-readiness checks. This workflow still does not publish."
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  npm-release-dry-run:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_NPM: ${{ inputs.release_npm }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release readiness
+        run: npm run verify
+
+      - name: Run npm pack dry run
+        run: npm run pack:dry-run
+
+      - name: Confirm dry-run boundary
+        run: |
+          echo "Dry run complete. No npm publish command is executed by this workflow."
+          echo "OIDC id-token permission is present only so a future manual publish workflow can use npm provenance."

@@ -3,8 +3,10 @@ import pc from "picocolors";
 import { promises as fs } from "node:fs";
 import { inspectSkillManifest } from "@runwitness/skills";
 import { createDefaultAdapterRegistry } from "@runwitness/adapters";
+import { runEnforcedSandbox, type EnforcedSandboxNetworkMode, type EnforcedSandboxRuntime } from "@runwitness/sandbox";
 import {
   listenOperatorServer,
+  loadHostedAuthConfig,
   RunLedger,
   runWitnessedCommand,
   type OperatorAuthOptions,
@@ -167,6 +169,59 @@ program
     });
   });
 
+const sandbox = program.command("sandbox").description("Inspect and run enforced sandbox boundaries.");
+
+sandbox
+  .command("container")
+  .description("Run a command through an opt-in Docker/Podman-backed sandbox.")
+  .requiredOption("--image <image>", "container image to run")
+  .option("--workspace <path>", "host workspace to mount", process.cwd())
+  .option("--runtime <runtime>", "container runtime: docker or podman", "docker")
+  .option("--network <mode>", "network mode: disabled, bridge, or host", "disabled")
+  .option("--workspace-mount <path>", "container workspace mount path", "/workspace")
+  .option("--workdir <path>", "container working directory")
+  .option("--read-write", "mount the workspace read-write; default is read-only")
+  .option("--env-allow <name>", "environment variable name to pass by reference; repeatable", collectOption, [] as string[])
+  .option("--keep-container", "do not pass --rm to the container runtime")
+  .option("--dry-run", "print the invocation plan without spawning the runtime")
+  .allowExcessArguments(true)
+  .argument("<command...>", "command to run inside the container")
+  .action(async (commandParts: string[], options: Record<string, unknown>) => {
+    const result = await runEnforcedSandbox({
+      runtime: parseEnforcedSandboxRuntime(String(options.runtime ?? "docker")),
+      workspaceRoot: String(options.workspace ?? process.cwd()),
+      image: String(options.image),
+      command: commandParts,
+      networkMode: parseEnforcedSandboxNetworkMode(String(options.network ?? "disabled")),
+      workspaceMountPath: String(options.workspaceMount ?? "/workspace"),
+      workdir: options.workdir ? String(options.workdir) : undefined,
+      readOnlyWorkspace: options.readWrite !== true,
+      envAllowlist: splitStringList(toStringList(options.envAllow)),
+      baseEnv: process.env,
+      removeContainer: options.keepContainer !== true,
+      dryRun: options.dryRun === true
+    });
+
+    printJson({
+      status: result.status,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      invocation: {
+        executable: result.invocation.executable,
+        args: result.invocation.args,
+        cwd: result.invocation.cwd,
+        commandLine: result.invocation.commandLine
+      },
+      plan: result.plan,
+      stdout: result.stdout,
+      stderr: result.stderr
+    });
+
+    if (!result.dryRun) {
+      process.exitCode = result.exitCode ?? (result.status === "completed" ? 0 : 1);
+    }
+  });
+
 program
   .command("serve")
   .description("Start the local operator API server.")
@@ -175,7 +230,8 @@ program
   .option("--port <port>", "port to bind", "8787")
   .option("--auth-token <token>", "bearer token for operator API auth; repeatable", collectOption, [] as string[])
   .option("--auth-token-env <name>", "environment variable containing a bearer token; repeatable", collectOption, [] as string[])
-  .option("--auth-config <path>", "JSON auth config with bearerTokens entries")
+  .option("--auth-config <path>", "legacy JSON auth config with plaintext bearerTokens/tokenEnv entries")
+  .option("--hosted-auth-config <path>", "hosted JSON auth config with bearerCredentials token hashes")
   .option("--operator-id <id>", "operator id for token flags")
   .option("--operator-role <role>", "role for token flags: viewer, approver, or admin; repeatable or comma-separated", collectOption, [] as string[])
   .option("--operator-user-scope <user>", "allowed user/userId for token flags; repeatable or comma-separated", collectOption, [] as string[])
@@ -192,7 +248,7 @@ program
     const server = await listenOperatorServer({ ledger, host, port, auth });
     console.log(pc.bold("RunWitness operator server listening"));
     console.log(server.url);
-    console.log(`Auth: ${auth ? `bearer (${auth.bearerTokens.length} credential${auth.bearerTokens.length === 1 ? "" : "s"})` : "disabled"}`);
+    console.log(`Auth: ${describeServeAuth(auth)}`);
     const shutdown = async () => {
       await server.close();
       ledger.close();
@@ -321,6 +377,22 @@ function parseRollbackMode(value: string): WitnessedRollbackMode {
   throw new Error("--rollback-mode must be one of: bundle, dry-run, apply");
 }
 
+function parseEnforcedSandboxRuntime(value: string): EnforcedSandboxRuntime {
+  if (value === "docker" || value === "podman") {
+    return value;
+  }
+
+  throw new Error("--runtime must be one of: docker, podman");
+}
+
+function parseEnforcedSandboxNetworkMode(value: string): EnforcedSandboxNetworkMode {
+  if (value === "disabled" || value === "bridge" || value === "host") {
+    return value;
+  }
+
+  throw new Error("--network must be one of: disabled, bridge, host");
+}
+
 function readSecretRedactionsFromEnvironment(names: string[]): string[] {
   return names.map((name) => {
     const value = process.env[name];
@@ -335,6 +407,9 @@ async function resolveServeAuthOptions(options: Record<string, unknown>): Promis
   const configuredCredentials = options.authConfig
     ? await readServeAuthConfig(String(options.authConfig))
     : [];
+  const hostedAuthConfig = options.hostedAuthConfig
+    ? await loadHostedAuthConfig(String(options.hostedAuthConfig))
+    : undefined;
   const inlineTokens = [
     ...splitStringList(toStringList(options.authToken)),
     ...readTokensFromEnvironment(splitStringList(toStringList(options.authTokenEnv)))
@@ -349,7 +424,30 @@ async function resolveServeAuthOptions(options: Record<string, unknown>): Promis
   );
   const bearerTokens = [...configuredCredentials, ...inlineCredentials];
 
-  return bearerTokens.length > 0 ? { bearerTokens } : undefined;
+  return bearerTokens.length > 0 || hostedAuthConfig
+    ? {
+        bearerTokens,
+        hostedAuthConfig
+      }
+    : undefined;
+}
+
+function describeServeAuth(auth: OperatorAuthOptions | undefined): string {
+  if (!auth) {
+    return "disabled";
+  }
+
+  const bearerCount = auth.bearerTokens?.length ?? 0;
+  const hostedCount = auth.hostedAuthConfig?.bearerCredentials.length ?? 0;
+  const total = bearerCount + hostedCount;
+  const parts = [];
+  if (bearerCount > 0) {
+    parts.push(`${bearerCount} local`);
+  }
+  if (hostedCount > 0) {
+    parts.push(`${hostedCount} hosted-hash`);
+  }
+  return `bearer (${total} credential${total === 1 ? "" : "s"}${parts.length > 0 ? `: ${parts.join(", ")}` : ""})`;
 }
 
 async function readServeAuthConfig(filePath: string): Promise<Array<string | OperatorBearerCredential>> {

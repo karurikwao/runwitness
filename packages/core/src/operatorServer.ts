@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import http, { type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
+import { authenticateHostedBearerToken, type LoadedHostedAuthConfig } from "./hostedAuth.js";
 import { RunLedger } from "./ledger.js";
 import type { RunEvent, RunRecord, RunStatus } from "./types.js";
 
@@ -21,7 +22,8 @@ export interface OperatorBearerCredential {
 }
 
 export interface OperatorAuthOptions {
-  bearerTokens: readonly (string | OperatorBearerCredential)[];
+  bearerTokens?: readonly (string | OperatorBearerCredential)[];
+  hostedAuthConfig?: LoadedHostedAuthConfig;
 }
 
 export interface OperatorPrincipal {
@@ -419,8 +421,14 @@ function normalizeAuthOptions(options: OperatorServerOptions): NormalizedAuthOpt
     return undefined;
   }
 
+  const bearerTokens = options.auth.bearerTokens ?? [];
+  if (bearerTokens.length === 0 && !options.auth.hostedAuthConfig) {
+    return undefined;
+  }
+
   return {
-    bearerTokens: options.auth.bearerTokens.map((credential) => normalizeBearerCredential(credential, options.operatorId))
+    bearerTokens: bearerTokens.map((credential) => normalizeBearerCredential(credential, options.operatorId)),
+    hostedAuthConfig: options.auth.hostedAuthConfig
   };
 }
 
@@ -518,7 +526,7 @@ function findPrincipalForToken(auth: NormalizedAuthOptions, token: string): Oper
     }
   }
 
-  return undefined;
+  return auth.hostedAuthConfig ? authenticateHostedBearerToken(auth.hostedAuthConfig, token) : undefined;
 }
 
 function requireApprovalWriteAccess(principal: OperatorPrincipal | undefined): void {
@@ -816,6 +824,7 @@ class HttpError extends Error {
 
 interface NormalizedAuthOptions {
   bearerTokens: NormalizedBearerCredential[];
+  hostedAuthConfig?: LoadedHostedAuthConfig;
 }
 
 interface NormalizedBearerCredential {

@@ -43,6 +43,7 @@ Future posture:
 Current limit:
 
 - the local secret broker is in-memory; the encrypted vault is local storage, not a hosted per-user service
+- hosted operator auth configs store token hashes and scopes, but they are not a full hosted RBAC administration product
 - brokered credential handoff is not yet integrated across every runtime path
 - command output redaction requires configured or brokered secret values
 - environment filtering covers launched command environments, not every possible host secret store
@@ -206,12 +207,13 @@ Current posture:
 - the local command adapter records command text, exit code, stdout, stderr, duration, and workspace file diffs
 - streamed local-command runs emit lifecycle, stdout, stderr, and finished events
 - OpenClaw and Hermes command-wrapper adapters stream output, normalize structured JSONL/SSE artifact/action events, and mark nested external activity as opaque
+- OpenClaw and Hermes native HTTP/SSE adapters can consume configured start/event/cancel endpoints and normalize exposed runtime events
 - generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters normalize structured events when emitted by the wrapped tool
 - orchestrated non-local adapter stream events are recorded in the run ledger
 
 Future posture:
 
-- richer native adapters for agent runtimes, browser automation, MCP, CI, and deployments
+- deeper runtime-validated native adapters for agent runtimes, browser automation, MCP, CI, and deployments
 - cross-adapter cancellation and cleanup
 
 ## Non-Goals In The Current Foundation
@@ -220,17 +222,18 @@ The current foundation is not a hard security sandbox. It is an observability, a
 
 ## Sandbox Limits
 
-The current `packages/sandbox` package provides snapshot/diff utilities, write preflight, network command preflight, path safety, filtered environments, temporary workspace copies, process isolation planning, rollback bundle primitives, and rollback apply helpers. The orchestrator can opt into rollback bundle creation and dry-run/apply behavior after failed commands. It does not provide OS-level process isolation.
+The current `packages/sandbox` package provides snapshot/diff utilities, write preflight, network command preflight, path safety, filtered environments, temporary workspace copies, process isolation planning, Docker/Podman sandbox invocation/execution helpers, rollback bundle primitives, and rollback apply helpers. The orchestrator can opt into rollback bundle creation and dry-run/apply behavior after failed commands. Normal witnessed runs do not use OS-level process isolation unless the operator chooses an enforced sandbox path.
 
 Current limits:
 
-- commands execute on the host
+- normal witnessed commands execute on the host
 - filesystem writes are preflighted heuristically and detected after completion
-- network access is preflighted from command text but not blocked
+- network access is preflighted from command text for normal runs and delegated to Docker/Podman network modes for container sandbox runs
 - secrets are filtered from command environments in common cases, local broker/vault audit records are redacted, and configured command-output redaction is available
-- process trees are not contained
+- process trees are not contained for normal runs
 - ignored folders are omitted from file-change receipts
 - temporary workspaces reduce source-workspace writes but do not stop a process from using host capabilities
+- container sandbox execution depends on the selected runtime, image, mounts, and network mode
 - rollback orchestration is opt-in and cannot guarantee recovery from every failure mode
 
-Future sandbox work should turn process isolation plans into enforced runners, add network egress controls, and broaden rollback workflows.
+Future sandbox work should wire enforced runners into more orchestrated paths, add network egress controls beyond container runtime modes, and broaden rollback workflows.

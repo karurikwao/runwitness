@@ -1,6 +1,7 @@
 export * from "./snapshot.js";
 export * from "./commandPreflight.js";
 export * from "./environment.js";
+export * from "./enforcedSandbox.js";
 export * from "./isolatedWorkspace.js";
 export * from "./networkPreflight.js";
 export * from "./pathSafety.js";

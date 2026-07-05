@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listenOperatorServer, RunLedger } from "../src/index.js";
+import { hashHostedBearerToken, listenOperatorServer, parseHostedAuthConfig, RunLedger } from "../src/index.js";
 
 let root: string;
 let ledger: RunLedger;
@@ -201,6 +201,80 @@ describe("operator server", () => {
         headers: { Authorization: "Bearer approver-token" }
       });
       expect(after.approvals).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("authenticates hosted hashed bearer credentials without storing plaintext tokens", async () => {
+    const run = await ledger.createRun({
+      id: "rw_hosted_auth_approval",
+      task: "Approve through hosted auth",
+      agent: "test-agent",
+      workspace: root
+    });
+    await ledger.appendEvent(run.id, "approval_requested", {
+      action: "deploy hosted cockpit",
+      policyDecision: "ask",
+      riskLevel: "high",
+      reasons: ["shared operator review"]
+    });
+
+    const token = "rwop_hosted_operator_secret";
+    const hostedAuthConfig = parseHostedAuthConfig({
+      version: 1,
+      bearerCredentials: [
+        {
+          id: "hosted-release-manager",
+          operatorId: "hosted-release-manager",
+          roles: ["approver"],
+          tokenSha256: hashHostedBearerToken(token).sha256,
+          allowedWorkspaces: [root]
+        }
+      ]
+    });
+
+    const server = await listenOperatorServer({ ledger, auth: { hostedAuthConfig } });
+    try {
+      const missingToken = await fetch(`${server.url}/operator/me`);
+      expect(missingToken.status).toBe(401);
+
+      const wrongToken = await fetch(`${server.url}/operator/me`, {
+        headers: { Authorization: "Bearer wrong-token" }
+      });
+      expect(wrongToken.status).toBe(401);
+
+      const identity = await getJson(`${server.url}/operator/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      expect(identity).toMatchObject({
+        authenticated: true,
+        principal: {
+          id: "hosted-release-manager",
+          roles: ["approver"],
+          allowedWorkspaces: [root]
+        },
+        capabilities: {
+          canApprove: true,
+          canExplainPolicy: false
+        }
+      });
+      expect(JSON.stringify(identity)).not.toContain(token);
+      expect(JSON.stringify(identity)).not.toContain(hashHostedBearerToken(token).sha256);
+
+      const approvalResponse = await fetch(`${server.url}/runs/${run.id}/approvals`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "allow", rationale: "Hosted operator approved." })
+      });
+      expect(approvalResponse.status).toBe(201);
+      const approval = (await approvalResponse.json()) as { approval: { payload: Record<string, unknown> } };
+      expect(approval.approval.payload).toMatchObject({
+        action: "deploy hosted cockpit",
+        decision: "allow",
+        decidedBy: { type: "human", id: "hosted-release-manager", roles: ["approver"] },
+        operator: { id: "hosted-release-manager", roles: ["approver"], allowedWorkspaces: [root] }
+      });
     } finally {
       await server.close();
     }

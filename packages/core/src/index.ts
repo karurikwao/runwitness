@@ -1,4 +1,5 @@
 export * from "./ids.js";
+export * from "./hostedAuth.js";
 export * from "./identity.js";
 export * from "./ledger.js";
 export * from "./operatorServer.js";

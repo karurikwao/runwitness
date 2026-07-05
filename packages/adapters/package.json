@@ -2,12 +2,22 @@
   "name": "@runwitness/adapters",
   "version": "0.1.0",
   "private": true,
+  "description": "Adapter contracts and command wrappers for RunWitness integrations.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "vitest run"

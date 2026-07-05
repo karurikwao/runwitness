@@ -2,11 +2,27 @@
   "name": "@runwitness/web",
   "version": "0.1.0",
   "private": true,
+  "description": "Web cockpit rendering surfaces for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@runwitness/ui": "0.1.0"
   }
 }

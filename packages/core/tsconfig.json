@@ -23,6 +23,7 @@
   },
   "include": [
     "src/index.ts",
+    "src/hostedAuth.ts",
     "src/ledger.ts",
     "src/operatorServer.ts",
     "src/types.ts",

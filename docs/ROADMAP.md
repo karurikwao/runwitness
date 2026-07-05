@@ -27,7 +27,7 @@
 
 ## Completed Foundations And Current Limits
 
-The codebase now has a working foundation for local witnessed commands: a CLI, SQLite ledger, append-only event trail, before/after file snapshots, shell-command risk classification, approval records, receipt export, sandbox preflight events, opt-in rollback evidence, streaming adapter events, and local operator APIs. The phases below describe implemented foundations and remaining limits. They should not be read as a claim of full OS isolation, hosted multi-user security, or complete nested-agent observability.
+The codebase now has a working foundation for local witnessed commands: a CLI, SQLite ledger, append-only event trail, before/after file snapshots, shell-command risk classification, approval records, receipt export, sandbox preflight events, opt-in container sandbox execution, opt-in rollback evidence, streaming adapter events, native OpenClaw/Hermes HTTP/SSE adapters, and local operator APIs. The phases below describe implemented foundations and remaining limits. They should not be read as a claim of universal OS isolation, hosted multi-user security, or complete nested-agent observability.
 
 ## Phase 3: Protected Policy and Approval Foundations
 
@@ -43,7 +43,7 @@ Implemented:
 - Signed policy bundle primitives can wrap policy layers, compute canonical digests, verify Ed25519 signatures, assess trust, and feed accepted layers into the hierarchy.
 - The orchestrator records `approval_requested` and `approval_recorded` events.
 - Non-interactive runs block risky actions unless `--yes` is supplied for ask-level risks.
-- `packages/core` exposes durable pending approvals, approval recording, receipt access, and optional bearer-token operator auth with viewer/approver/admin roles plus user/workspace scopes.
+- `packages/core` exposes durable pending approvals, approval recording, receipt access, and optional bearer-token operator auth with viewer/approver/admin roles, user/workspace scopes, and hosted-style hashed credential configs.
 
 Current limits:
 
@@ -85,15 +85,16 @@ Implemented:
 - `runWitnessedCommand` can block denied network preflight before execution and can pre-approve ask-level network preflight with `--yes`.
 - `runWitnessedCommand` can create rollback baselines/bundles and, when enabled, dry-run or apply rollback after failed commands.
 - Process isolation planning documents `none`, `temp-workspace`, `container`, `job-object/windows`, and `namespace/linux` strategies with platform capability and fallback evidence.
+- `runEnforcedSandbox` and `runwitness sandbox container` can build dry-run plans or execute Docker/Podman-backed commands with read-only workspace mounts by default, explicit network mode, environment allowlists, and safe bind-mount validation.
 - Generated and runtime folders such as `.git`, `.runwitness`, `node_modules`, `dist`, `coverage`, and `receipts` are ignored by default in snapshots.
 
 Current limits:
 
-- This is a local hardening layer, not an OS sandbox or container boundary.
-- Network access is preflighted from command text but not blocked at the OS boundary.
+- Normal witnessed commands are a local hardening layer, not a universal OS sandbox or container boundary.
+- Network access is preflighted from command text for normal runs and enforced only where the selected container runtime mode enforces it.
 - Command write preflight is heuristic and does not trace every nested process.
 - Rollback orchestration is opt-in and does not guarantee recovery across every failure mode.
-- Process isolation planning does not spawn containers or OS-specific runners.
+- The container runner is opt-in and separate from normal witnessed runs; Windows Job Object and Linux namespace runners remain future work.
 
 ## Phase 6: Streaming Command-Wrapper Adapters
 
@@ -102,6 +103,7 @@ Implemented:
 - `packages/adapters` contains a formal adapter contract, capability metadata, and registry.
 - `local-command` runs local commands and supports streamed lifecycle/stdout/stderr/finish events.
 - `openclaw` and `hermes` command-wrapper adapters can invoke configured external tools.
+- `openclaw-native` and `hermes-native` can start configured HTTP runtimes, consume JSONL/SSE event streams, normalize artifacts/actions/output/status, and request best-effort cancellation.
 - Generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters are registered by default and can be disabled per registry option.
 - Command-wrapper adapters stream output, normalize structured JSONL/SSE artifact/action events when emitted by the tool, and emit an `adapter_opaque_action` marker for nested activity they cannot inspect.
 - Orchestrated non-local adapters write streamed adapter events into the run ledger and receipt timeline.
@@ -110,9 +112,9 @@ Implemented:
 
 Current limits:
 
-- OpenClaw and Hermes integrations normalize structured wrapper streams but are not direct native protocol adapters.
+- OpenClaw and Hermes native adapters are configurable HTTP/SSE foundations and still need real-runtime compatibility validation for upstream-specific endpoint contracts.
 - Browser automation, MCP, CI, and deployment integrations are generic wrapper foundations, not native protocol integrations.
-- Codex, Claude Code, direct native protocol adapters, and richer cleanup semantics remain future work.
+- Codex, Claude Code, additional native protocol adapters, and richer cleanup semantics remain future work.
 
 ## Phase 7: Live Authenticated Operator Cockpit Foundations
 
@@ -122,9 +124,9 @@ Implemented:
 - `apps/web` can render a live cockpit shell that polls the operator API, uses EventSource snapshots, reads a bearer token from local storage, and posts approval decisions.
 - `packages/ui` contains shared cockpit rendering helpers.
 - `packages/core` exposes local operator API routes for runs, timelines, steps, receipts, receipt artifacts, pending approvals, approval writes, and authenticated event snapshots.
-- Operator auth supports bearer tokens, viewer/approver/admin roles, timing-safe token comparison, and user/workspace scopes.
+- Operator auth supports bearer tokens, viewer/approver/admin roles, timing-safe token comparison, hosted-style hashed credential configs, and user/workspace scopes.
 - `apps/cli` exposes `runwitness serve` for the local operator API.
-- `runwitness serve` supports token, token-env, JSON auth config, role, user-scope, and workspace-scope flags without printing token values.
+- `runwitness serve` supports token, token-env, legacy JSON auth config, hosted hashed auth config, role, user-scope, and workspace-scope flags without printing token values.
 - The live cockpit renders policy lineage/digests from receipt and timeline data, and exposes a gated policy explain/edit placeholder while policy writes remain disabled.
 - The live cockpit renders `/operator/me` identity, role, scope, capability, and policy-write state so authenticated sessions are visible to operators.
 
@@ -152,16 +154,16 @@ Implemented:
 
 Current limits:
 
-- There is no full multi-user RBAC product yet.
+- There is no full hosted multi-user RBAC product yet.
 - The local broker is in-memory, and the encrypted vault is local; together they are not yet a universal runtime credential boundary.
 - Command output redaction requires explicit configured or environment-sourced redaction values and is not automatic for every possible secret source.
 - User/workspace scoping is enforced in the local operator API, not across every adapter, CLI command, receipt, or filesystem path.
 
 ## Remaining Hardening Queue
 
-- Turn process isolation plans into enforced OS/container runners and add real network egress controls.
+- Wire enforced sandbox execution into more orchestrated run paths and add real network egress controls beyond container runtime modes.
 - Connect every real skill runtime path to `runBrokeredSkill`.
 - Broaden rollback recovery beyond opt-in command failure orchestration.
-- Upgrade generic wrappers into direct native adapters for agent runtimes and add richer cleanup semantics.
+- Validate and deepen the OpenClaw/Hermes native adapters, then upgrade more generic wrappers into native adapters where runtimes expose trustworthy event streams.
 - Package the live cockpit as a fuller app while keeping policy writes audited and gated.
-- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization.
+- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization administration.

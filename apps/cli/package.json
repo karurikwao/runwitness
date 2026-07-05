@@ -2,14 +2,36 @@
   "name": "@runwitness/cli",
   "version": "0.1.0",
   "private": true,
+  "description": "Command-line interface for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "bin": {
     "runwitness": "./dist/src/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@runwitness/adapters": "0.1.0",
+    "@runwitness/core": "0.1.0",
+    "@runwitness/policy": "0.1.0",
+    "@runwitness/sandbox": "0.1.0",
+    "@runwitness/skills": "0.1.0",
+    "commander": "^14.0.0",
+    "picocolors": "^1.1.1"
   }
 }

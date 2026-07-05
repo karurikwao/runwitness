@@ -2,18 +2,35 @@
   "name": "@runwitness/core",
   "version": "0.1.0",
   "private": true,
+  "description": "Core orchestration, ledger, identity, and secret primitives for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p ../../tsconfig.json",
     "test": "vitest run"
   },
+  "engines": {
+    "node": ">=22.19"
+  },
   "dependencies": {
+    "@runwitness/adapters": "0.1.0",
+    "@runwitness/policy": "0.1.0",
+    "@runwitness/receipts": "0.1.0",
+    "@runwitness/sandbox": "0.1.0",
     "sql.js": "^1.13.0"
   },
   "devDependencies": {}
