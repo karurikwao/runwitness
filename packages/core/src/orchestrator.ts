@@ -1,6 +1,6 @@
 import path from "node:path";
 import { isLikelyTestCommand, runLocalCommand } from "@runwitness/adapters";
-import { classifyShellCommand, createApprovalRecord } from "@runwitness/policy";
+import { classifyShellCommand, createApprovalRecord, evaluateCommandPolicy, type CommandPolicy } from "@runwitness/policy";
 import { buildReceipt, writeProofBundle } from "@runwitness/receipts";
 import { DEFAULT_IGNORED_NAMES, diffSnapshots, snapshotWorkspace } from "@runwitness/sandbox";
 import { createStepId } from "./ids.js";
@@ -16,6 +16,7 @@ export interface WitnessedCommandOptions {
   agent?: string;
   yes?: boolean;
   receiptDir?: string;
+  policy?: CommandPolicy;
 }
 
 export interface WitnessedCommandResult {
@@ -42,16 +43,22 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
     });
 
     const risk = classifyShellCommand(options.command);
-    const riskReasons = risk.reasons.map((reason) => reason.summary);
-    if (risk.decision === "ask" || risk.decision === "deny") {
+    const policyEvaluation = options.policy ? evaluateCommandPolicy(options.command, options.policy) : undefined;
+    const decision = policyEvaluation?.decision ?? risk.decision;
+    const riskReasons = policyEvaluation
+      ? policyEvaluation.reasons.map((reason) => reason.summary)
+      : risk.reasons.map((reason) => reason.summary);
+    const riskLevel = policyEvaluation?.severity ?? risk.severity;
+    if (decision === "ask" || decision === "deny") {
       await ledger.appendEvent(run.id, "approval_requested", {
         action: options.command,
         reasons: riskReasons,
-        riskLevel: risk.severity,
-        policyDecision: risk.decision
+        riskLevel,
+        policyDecision: decision,
+        policyEvaluation
       });
 
-      const approved = risk.decision === "ask" && options.yes;
+      const approved = decision === "ask" && options.yes;
       const approval = createApprovalRecord({
         runId: run.id,
         action: options.command,

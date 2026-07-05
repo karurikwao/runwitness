@@ -8,6 +8,8 @@ import type {
   CreateRunInput,
   CreateStepInput,
   EventKind,
+  ListRunsOptions,
+  ReceiptExportRecord,
   ReceiptSummary,
   RunEvent,
   RunRecord,
@@ -254,6 +256,15 @@ export class RunLedger {
       .filter((receipt): receipt is ReceiptSummary => receipt !== undefined);
   }
 
+  readReceipt(runId: string, receiptId?: string): ReceiptSummary | undefined {
+    const receipts = this.listReceipts(runId);
+    if (receiptId === undefined) {
+      return receipts.at(-1);
+    }
+
+    return receipts.find((receipt) => receipt.id === receiptId);
+  }
+
   getRun(runId: string): RunRecord | undefined {
     const row = this.selectOne(
       `select id, task, agent, status, workspace, started_at, ended_at, metadata_json
@@ -264,6 +275,28 @@ export class RunLedger {
     return row ? this.mapRun(row) : undefined;
   }
 
+  listRuns(options: ListRunsOptions = {}): RunRecord[] {
+    const rows = this.selectAll(
+      `select id, task, agent, status, workspace, started_at, ended_at, metadata_json
+       from runs
+       where (? is null or agent = ?)
+         and (? is null or workspace = ?)
+       order by started_at desc, id desc`,
+      [
+        options.agent ?? null,
+        options.agent ?? null,
+        options.workspace ?? null,
+        options.workspace ?? null
+      ]
+    );
+    const runs = rows
+      .map((row) => this.mapRun(row))
+      .filter((run) => options.status === undefined || run.status === options.status);
+    const offset = normalizeOffset(options.offset);
+    const limit = normalizeLimit(options.limit);
+    return limit === undefined ? runs.slice(offset) : runs.slice(offset, offset + limit);
+  }
+
   timeline(runId: string): RunEvent[] {
     return this.selectAll(
       `select id, run_id, sequence, kind, step_id, timestamp, payload_json, receipt_json
@@ -272,6 +305,23 @@ export class RunLedger {
        order by sequence asc`,
       [runId]
     ).map((row) => this.mapEvent(row));
+  }
+
+  listReceiptExports(runId: string): ReceiptExportRecord[] {
+    return this.timeline(runId)
+      .filter((event) => event.kind === "receipt_exported")
+      .map((event) => ({
+        runId,
+        sequence: event.sequence,
+        timestamp: event.timestamp,
+        jsonPath: typeof event.payload.jsonPath === "string" ? event.payload.jsonPath : undefined,
+        markdownPath: typeof event.payload.markdownPath === "string" ? event.payload.markdownPath : undefined,
+        payload: event.payload
+      }));
+  }
+
+  readLatestReceiptExport(runId: string): ReceiptExportRecord | undefined {
+    return this.listReceiptExports(runId).at(-1);
   }
 
   exportSnapshot(): Uint8Array {
@@ -497,4 +547,20 @@ function terminalStepTimestamp(events: RunEvent[]): string | undefined {
   return [...events]
     .reverse()
     .find((event) => event.kind === "step_finished" || event.kind === "command_finished")?.timestamp;
+}
+
+function normalizeOffset(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+
+  return Math.trunc(value);
+}
+
+function normalizeLimit(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.trunc(value));
 }

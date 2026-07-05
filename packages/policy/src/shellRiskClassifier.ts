@@ -71,8 +71,6 @@ const envPrintPatterns = [
   /\becho\s+(?:\$env:[a-z_][a-z0-9_]*|\$[a-z_][a-z0-9_]*|%[a-z_][a-z0-9_]*%)/i,
 ] as const;
 
-const gitPushPattern = /\bgit(?:\s+-[^\s]+)*\s+push\b/i;
-
 const networkExfilPatterns = [
   /\b(?:curl|curl\.exe)\b[\s\S]*(?:--data(?:-binary|-raw)?\b|--form\b|--upload-file\b|--request\s+post\b|@\S+)/i,
   /\b(?:curl|curl\.exe)\b[\s\S]*(?:\s-d\b|\s-F\b|\s-T\b|\s-X\s+POST\b)/,
@@ -121,7 +119,7 @@ export function classifyShellCommand(
     });
   }
 
-  const gitPushEvidence = normalizedCommand.match(gitPushPattern)?.[0];
+  const gitPushEvidence = detectGitPushEvidence(normalizedCommand);
   if (gitPushEvidence) {
     reasons.push({
       code: "git_push",
@@ -186,6 +184,86 @@ export function classifyShellCommand(
 
 export function normalizeShellCommand(command: string): string {
   return command.trim().replace(/\s+/g, " ");
+}
+
+function detectGitPushEvidence(command: string): string | undefined {
+  const tokens = tokenizeShell(command);
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (normalizeCommandName(tokens[index]) !== "git") {
+      continue;
+    }
+
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      const token = tokens[cursor];
+      if (token === undefined) {
+        break;
+      }
+
+      if (token === "push") {
+        return compactEvidence(tokens.slice(index, Math.min(tokens.length, cursor + 4)).join(" "));
+      }
+
+      if (isShellSeparator(token)) {
+        break;
+      }
+
+      if (!token.startsWith("-")) {
+        break;
+      }
+
+      if (gitOptionTakesValue(token) && !token.includes("=")) {
+        cursor += 1;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function gitOptionTakesValue(option: string): boolean {
+  return (
+    option === "-C" ||
+    option === "-c" ||
+    option === "--git-dir" ||
+    option === "--work-tree" ||
+    option === "--namespace" ||
+    option === "--config-env" ||
+    option === "--exec-path" ||
+    option === "--super-prefix"
+  );
+}
+
+function tokenizeShell(command: string): string[] {
+  const tokens: string[] = [];
+  const tokenPattern = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)'|`([^`]*)`|&&|\|\||[|;&()]|[^\s|;&()]+/g;
+
+  for (const match of command.matchAll(tokenPattern)) {
+    tokens.push(stripShellQuotes(match[0]));
+  }
+
+  return tokens;
+}
+
+function normalizeCommandName(token: string | undefined): string | undefined {
+  if (token === undefined) {
+    return undefined;
+  }
+
+  return stripShellQuotes(token).toLowerCase().replace(/(?:^|.*[\\/])([^\\/]+)$/u, "$1");
+}
+
+function stripShellQuotes(value: string): string {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function isShellSeparator(token: string): boolean {
+  return token === "|" || token === "&&" || token === "||" || token === ";" || token === "&" || token === "(" || token === ")";
 }
 
 function firstMatch(command: string, patterns: readonly RegExp[]): string | undefined {

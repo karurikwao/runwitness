@@ -80,4 +80,64 @@ describe("RunLedger", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("lists runs and reads ledger receipt records", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "runwitness-ledger-"));
+    try {
+      const dbPath = path.join(root, "runwitness.sqlite");
+      const ledger = await RunLedger.open(dbPath);
+      try {
+        const completedRun = await ledger.createRun({
+          id: "rw_completed",
+          task: "Completed task",
+          agent: "test-agent",
+          workspace: root
+        });
+        const runningRun = await ledger.createRun({
+          id: "rw_running",
+          task: "Running task",
+          agent: "test-agent",
+          workspace: root
+        });
+        const firstReceipt = await ledger.appendReceipt({
+          id: "receipt_first",
+          runId: completedRun.id,
+          kind: "note",
+          status: "info",
+          label: "First"
+        });
+        const secondReceipt = await ledger.appendReceipt({
+          id: "receipt_second",
+          runId: completedRun.id,
+          kind: "artifact",
+          status: "passed",
+          label: "Second"
+        });
+        await ledger.appendEvent(completedRun.id, "receipt_exported", {
+          jsonPath: path.join(root, "receipt.json"),
+          markdownPath: path.join(root, "receipt.md")
+        });
+        await ledger.finishRun(completedRun.id, "completed");
+
+        expect(ledger.listRuns().map((run) => run.id)).toEqual(
+          expect.arrayContaining([completedRun.id, runningRun.id])
+        );
+        expect(ledger.listRuns({ status: "completed" }).map((run) => run.id)).toEqual([completedRun.id]);
+        expect(ledger.listRuns({ limit: 1 })).toHaveLength(1);
+        expect(ledger.readReceipt(completedRun.id)).toEqual(secondReceipt);
+        expect(ledger.readReceipt(completedRun.id, firstReceipt.id)).toEqual(firstReceipt);
+        expect(ledger.listReceiptExports(completedRun.id)).toEqual([
+          expect.objectContaining({
+            runId: completedRun.id,
+            jsonPath: path.join(root, "receipt.json"),
+            markdownPath: path.join(root, "receipt.md")
+          })
+        ]);
+      } finally {
+        ledger.close();
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -24,6 +24,7 @@
   "include": [
     "src/index.ts",
     "src/ledger.ts",
+    "src/operatorServer.ts",
     "src/types.ts",
     "src/sqljs.d.ts"
   ]

@@ -56,6 +56,14 @@ export interface RunRecord {
 
 export type Run = RunRecord;
 
+export interface ListRunsOptions {
+  status?: RunStatus;
+  agent?: string;
+  workspace?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export interface RunStep {
   id: string;
   runId: string;
@@ -116,6 +124,15 @@ export interface AppendReceiptInput {
   metadata?: Record<string, unknown>;
   message?: string;
   payload?: Record<string, unknown>;
+}
+
+export interface ReceiptExportRecord {
+  runId: string;
+  sequence: number;
+  timestamp: string;
+  jsonPath?: string;
+  markdownPath?: string;
+  payload: Record<string, unknown>;
 }
 
 export interface FileChange {
