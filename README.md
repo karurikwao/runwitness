@@ -13,6 +13,19 @@ The first milestone is intentionally small:
 
 RunWitness is not trying to replace OpenClaw, Hermes, Codex, Claude Code, local agents, or MCP tools. It is the witness layer around them: policy, event history, receipts, and verification.
 
+## Alpha Status
+
+RunWitness is ready for a GitHub alpha launch. It is useful today for local witnessed commands, policy decisions, receipts, sandbox preflight, rollback evidence, and adapter event capture. It is not a hard OS sandbox, hosted multi-user control plane, or universal secret boundary.
+
+Launch and trust docs:
+
+- [Security policy](SECURITY.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Launch checklist](docs/LAUNCH_CHECKLIST.md)
+- [Alpha release notes](docs/ALPHA_RELEASE_NOTES.md)
+- [Examples](examples/README.md)
+
 ## Why It Exists
 
 Autonomous agents are useful because they can touch real systems: files, shells, browsers, APIs, chat tools, and deployments. That is also what makes them risky. A confident final message is not enough when a task touched source code, secrets, CI, or production.
@@ -38,10 +51,10 @@ RunWitness makes witnessed work inspectable:
 
 ## Quick Start
 
-Install dependencies:
+Install dependencies from the lockfile:
 
 ```bash
-npm install
+npm ci
 ```
 
 Run a witnessed command:
@@ -53,20 +66,20 @@ npm run rw -- run --task "List files" -- node -e "console.log('hello from RunWit
 Check a YAML policy before a run:
 
 ```bash
-npm run rw -- policy check --policy runwitness.policy.yml -- node -e "console.log('ok')"
+npm run rw -- policy check --policy examples/quickstart-policy.yml -- node -e "console.log('ok')"
 ```
 
 Run with that policy:
 
 ```bash
-npm run rw -- run --policy runwitness.policy.yml --task "Policy checked task" -- node -e "console.log('ok')"
+npm run rw -- run --policy examples/quickstart-policy.yml --task "Policy checked task" -- node -e "console.log('ok')"
 ```
 
 Inspect other foundations:
 
 ```bash
 npm run rw -- adapters list
-npm run rw -- skill inspect --file skill.yml
+npm run rw -- skill inspect --file examples/quickstart-skill.yml
 npm run rw -- serve --data-dir .runwitness --host 127.0.0.1 --port 8787
 ```
 

@@ -1,0 +1,124 @@
+name: Feature request
+description: Suggest a RunWitness capability, workflow improvement, or security/tooling enhancement.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - alpha
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape RunWitness while it is still alpha software.
+
+        Security warning: do not disclose vulnerabilities, exploit details, secrets, tokens, private receipts, customer data, or sensitive infrastructure information in a public issue. If this request is based on a security vulnerability or bypass, stop here and report it privately to the maintainers instead.
+
+  - type: input
+    id: runwitness-version
+    attributes:
+      label: RunWitness version
+      description: Use `runwitness --version`, the package version, commit SHA, or release tag if this request comes from hands-on testing.
+      placeholder: "0.1.0-alpha, v0.1.0, or commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: Where would you use this feature?
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Cross-platform
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "Windows 11 24H2, macOS 15.5, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Run `node --version` if the request relates to local development, CLI use, adapters, or package behavior.
+      placeholder: "v22.17.0"
+    validations:
+      required: true
+
+  - type: input
+    id: npm-version
+    attributes:
+      label: npm version
+      description: Run `npm --version` if the request relates to local development, CLI use, adapters, or package behavior.
+      placeholder: "10.9.2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What security, tooling, evidence, sandboxing, policy, receipt, adapter, or operator workflow would this improve?
+      placeholder: "Describe the workflow and why the current alpha behavior is not enough."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Current reproduction or example
+      description: If this request comes from a real workflow, provide safe steps or a minimal example that shows the current limitation.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. The workflow currently requires ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should RunWitness make possible?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior or limitation
+      description: What happens today, or what manual workaround is required?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature, command, API, policy behavior, adapter behavior, or UI flow you would like.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, examples, or receipts
+      description: Paste sanitized logs, command output, receipt excerpts, or examples that explain the request. Remove secrets, tokens, private keys, internal hostnames, customer data, and exploit details before posting.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention any existing RunWitness feature, external tool, or manual process you tried.
+    validations:
+      required: false

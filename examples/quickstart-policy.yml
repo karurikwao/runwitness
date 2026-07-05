@@ -1,0 +1,15 @@
+version: 1
+shell:
+  deny:
+    - npm publish*
+    - git push*
+network:
+  allow:
+    - localhost
+    - 127.0.0.1
+    - ::1
+filesystem:
+  protected:
+    - .env
+    - .git
+    - .runwitness

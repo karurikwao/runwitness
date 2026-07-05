@@ -1,0 +1,10 @@
+name: quickstart-skill
+version: 0.1.0
+description: Minimal safe manifest for `runwitness skill inspect`.
+permissions:
+  filesystem:
+    read:
+      - examples
+  network:
+    allow:
+      - localhost
