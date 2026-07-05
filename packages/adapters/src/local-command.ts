@@ -15,6 +15,8 @@ export interface LocalCommandInput {
   env?: NodeJS.ProcessEnv;
   adapterId?: string;
   onEvent?: AgentAdapterStreamHandler;
+  signal?: AbortSignal;
+  killSignal?: NodeJS.Signals;
 }
 
 export interface LocalCommandResult {
@@ -111,6 +113,8 @@ export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCo
 
   return new Promise((resolve, reject) => {
     const args = input.args ?? [];
+    const killSignal = input.killSignal ?? "SIGTERM";
+    let aborted = input.signal?.aborted === true;
     queueEmit({
       kind: "adapter_started",
       message: renderInvocation(input),
@@ -120,6 +124,27 @@ export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCo
         cwd: input.cwd
       }
     });
+    if (aborted) {
+      const durationMs = Math.round(performance.now() - started);
+      queueEmit({
+        kind: "adapter_finished",
+        message: "Adapter cancelled.",
+        payload: { exitCode: null, signal: killSignal, durationMs, aborted: true }
+      });
+      void pendingEmits.then(() => {
+        resolve({
+          command: input.command,
+          cwd: input.cwd,
+          exitCode: null,
+          signal: killSignal,
+          durationMs,
+          stdout: "",
+          stderr: ""
+        });
+      }, reject);
+      return;
+    }
+
     const child = spawn(input.command, args, {
       cwd: input.cwd,
       env: input.env ?? process.env,
@@ -129,6 +154,16 @@ export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCo
 
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
+    const abort = (): void => {
+      aborted = true;
+      if (!child.killed) {
+        child.kill(killSignal);
+      }
+    };
+    input.signal?.addEventListener("abort", abort, { once: true });
+    const removeAbortListener = (): void => {
+      input.signal?.removeEventListener("abort", abort);
+    };
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout.push(chunk);
@@ -138,20 +173,25 @@ export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCo
       stderr.push(chunk);
       queueEmit({ kind: "adapter_stderr", stream: "stderr", message: chunk.toString("utf8") });
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      removeAbortListener();
+      reject(error);
+    });
     child.on("close", (exitCode, signal) => {
+      removeAbortListener();
       const durationMs = Math.round(performance.now() - started);
+      const finalSignal = signal ?? (aborted ? killSignal : null);
       queueEmit({
         kind: "adapter_finished",
-        message: exitCode === 0 ? "Adapter completed." : "Adapter failed.",
-        payload: { exitCode, signal, durationMs }
+        message: aborted ? "Adapter cancelled." : exitCode === 0 ? "Adapter completed." : "Adapter failed.",
+        payload: { exitCode, signal: finalSignal, durationMs, aborted }
       });
       void pendingEmits.then(() => {
         resolve({
           command: input.command,
           cwd: input.cwd,
           exitCode,
-          signal,
+          signal: finalSignal,
           durationMs,
           stdout: Buffer.concat(stdout).toString("utf8"),
           stderr: Buffer.concat(stderr).toString("utf8")
@@ -172,7 +212,8 @@ function createLocalInvocation(input: AgentAdapterRunInput, defaultEnv?: NodeJS.
     command,
     args: executable ? args : undefined,
     cwd: input.workspace,
-    env: mergeEnv(process.env, defaultEnv, input.env)
+    env: mergeEnv(process.env, defaultEnv, input.env),
+    signal: input.signal
   };
 }
 

@@ -107,7 +107,8 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
 
   const state = {
     selectedRunId: main.getAttribute("data-selected-run") || undefined,
-    eventSource: undefined
+    eventSource: undefined,
+    operator: { authenticated: false, capabilities: {} }
   };
 
   const token = () => window.localStorage.getItem(tokenKey) || "";
@@ -137,23 +138,51 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   };
+  const safeGetJson = async (path, fallback) => {
+    try {
+      return await getJson(path);
+    } catch {
+      return fallback;
+    }
+  };
 
   async function refresh() {
-    const [runs, approvals] = await Promise.all([
+    const [runs, approvals, operator] = await Promise.all([
       getJson("/runs?limit=50"),
-      getJson("/approvals/pending")
+      getJson("/approvals/pending"),
+      safeGetJson("/operator/me", { authenticated: false, capabilities: {} })
     ]);
+    state.operator = operator || { authenticated: false, capabilities: {} };
     if (!state.selectedRunId && runs.runs && runs.runs[0]) state.selectedRunId = runs.runs[0].id;
-    const selected = state.selectedRunId ? await getJson("/runs/" + encodeURIComponent(state.selectedRunId) + "/timeline") : { events: [] };
-    render(runs.runs || [], approvals.approvals || [], selected.events || []);
+    const details = await loadSelectedRunDetails();
+    render(runs.runs || [], approvals.approvals || [], details.events, details.receipts, details.policy);
   }
 
   function applySnapshot(snapshot) {
     if (!state.selectedRunId && snapshot.latestRunId) state.selectedRunId = snapshot.latestRunId;
-    render(snapshot.runs || [], snapshot.approvals || [], snapshot.latestEvents || []);
+    void refresh();
   }
 
-  function render(runs, approvals, events) {
+  async function loadSelectedRunDetails() {
+    if (!state.selectedRunId) {
+      return { events: [], receipts: [], policy: createPolicyViewModel([], undefined) };
+    }
+
+    const runPath = "/runs/" + encodeURIComponent(state.selectedRunId);
+    const [selected, receiptSummary, receiptArtifact] = await Promise.all([
+      getJson(runPath + "/timeline"),
+      safeGetJson(runPath + "/receipts", { receipts: [], exports: [] }),
+      safeGetJson(runPath + "/receipt?format=json", undefined)
+    ]);
+    const events = selected.events || [];
+    return {
+      events,
+      receipts: receiptItemsFromSummary(receiptSummary),
+      policy: createPolicyViewModel(events, receiptArtifact)
+    };
+  }
+
+  function render(runs, approvals, events, receipts, policy) {
     const runRows = runs.map((run) => '<tr' + (run.id === state.selectedRunId ? ' aria-current="true"' : "") + ' data-run-id="' + escapeHtml(run.id) + '">' +
       '<td>' + pill(run.status) + '</td>' +
       '<td><div class="rw-row__title">' + escapeHtml(run.task) + '</div><div class="rw-muted rw-code">' + escapeHtml(run.id) + '</div></td>' +
@@ -174,13 +203,189 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
       '<div class="rw-row__meta"><span>' + escapeHtml(event.timestamp) + '</span></div>' +
       '<div class="rw-muted rw-code">' + escapeHtml(JSON.stringify(event.payload || {})) + '</div></div>' +
     '</article>').join("");
+    const policyRows = renderPolicyBody(policy);
+    const receiptRows = renderReceiptsBody(receipts);
     main.querySelector(".rw-table tbody")?.replaceChildren();
     const runBody = main.querySelector(".rw-table tbody");
     if (runBody) runBody.innerHTML = runRows;
-    const approvalsBody = main.querySelector('aside .rw-panel:nth-child(1) .rw-panel__body');
+    const approvalsBody = panelBody("rw-panel-approvals");
     if (approvalsBody) approvalsBody.innerHTML = approvalRows ? '<div class="rw-stack">' + approvalRows + '</div>' : '<div class="rw-empty">No approvals waiting.</div>';
-    const timelineBody = main.querySelector('.rw-column .rw-panel:nth-child(2) .rw-panel__body');
+    const timelineBody = panelBody("rw-panel-timeline");
     if (timelineBody) timelineBody.innerHTML = timelineRows ? '<div class="rw-timeline">' + timelineRows + '</div>' : '<div class="rw-empty">No timeline events.</div>';
+    const policyBody = panelBody("rw-panel-policy");
+    if (policyBody) policyBody.innerHTML = policyRows;
+    const receiptsBody = panelBody("rw-panel-receipts");
+    if (receiptsBody) receiptsBody.innerHTML = receiptRows;
+  }
+
+  function panelBody(id) {
+    return document.getElementById(id)?.closest(".rw-panel")?.querySelector(".rw-panel__body");
+  }
+
+  function createPolicyViewModel(events, receiptArtifact) {
+    const lineage = policyLineageFromReceipt(receiptArtifact) || policyLineageFromEvents(events);
+    const rules = [];
+    const findings = [];
+    if (lineage) {
+      if (lineage.digest && lineage.digest.value) {
+        rules.push({
+          code: "effective-policy",
+          label: "Effective policy digest",
+          decision: "loaded",
+          description: digestText(lineage.digest)
+        });
+      }
+      if (Array.isArray(lineage.precedence) && lineage.precedence.length > 0) {
+        rules.push({
+          code: "policy-precedence",
+          label: "Policy precedence",
+          decision: "loaded",
+          description: lineage.precedence.map(String).join(" -> ")
+        });
+      }
+      for (const layer of Array.isArray(lineage.layers) ? lineage.layers : []) {
+        if (!isObject(layer)) continue;
+        const label = String(layer.label || layer.kind || "Policy layer");
+        rules.push({
+          code: "policy-layer:" + String(layer.kind || label),
+          label,
+          decision: "loaded",
+          description: [digestText(layer.digest), layer.path ? String(layer.path) : ""].filter(Boolean).join(" | ")
+        });
+      }
+      const protectedSourcePaths = Array.isArray(lineage.protectedSourcePaths) ? lineage.protectedSourcePaths : [];
+      protectedSourcePaths.forEach((entry, index) => {
+        if (!isObject(entry) || !entry.path) return;
+        findings.push({
+          code: "protected-source:" + String(index + 1),
+          label: "Protected policy source",
+          decision: "protected",
+          description: [String(entry.path), entry.reason ? String(entry.reason) : ""].filter(Boolean).join(" | ")
+        });
+      });
+    }
+
+    const capabilities = isObject(state.operator?.capabilities) ? state.operator.capabilities : {};
+    if (state.operator?.authenticated === true && capabilities.canRequestPolicyEdit === true) {
+      findings.push({
+        code: "policy-admin-placeholder",
+        label: "Policy explain/edit placeholder",
+        decision: "admin",
+        description: "Authenticated admin-capable operator detected. Policy writes remain disabled until audited validation is available."
+      });
+    }
+
+    return { rules, findings };
+  }
+
+  function policyLineageFromReceipt(receiptArtifact) {
+    return isObject(receiptArtifact) && isObject(receiptArtifact.policy) ? receiptArtifact.policy : undefined;
+  }
+
+  function policyLineageFromEvents(events) {
+    for (const event of [...events].reverse()) {
+      if (event && event.kind === "policy_loaded" && isObject(event.payload)) {
+        return event.payload;
+      }
+    }
+    return undefined;
+  }
+
+  function renderPolicyBody(policy) {
+    const findings = policy?.findings || [];
+    const rules = policy?.rules || [];
+    const body = [
+      findings.length > 0 ? '<div class="rw-stack">' + findings.map(renderPolicyRuleRow).join("") + '</div>' : "",
+      rules.length > 0 ? '<div class="rw-stack">' + rules.map(renderPolicyRuleRow).join("") + '</div>' : ""
+    ].filter(Boolean).join("");
+    return body || '<div class="rw-empty">No policy lineage loaded.</div>';
+  }
+
+  function renderPolicyRuleRow(rule) {
+    return '<article class="rw-row">' +
+      '<div class="rw-row__head"><div class="rw-row__title">' + escapeHtml(rule.label) + '</div>' + pill(rule.decision || "info") + '</div>' +
+      '<div class="rw-row__meta"><span class="rw-code">' + escapeHtml(rule.code) + '</span></div>' +
+      (rule.description ? '<div class="rw-muted rw-code">' + escapeHtml(rule.description) + '</div>' : "") +
+    '</article>';
+  }
+
+  function receiptItemsFromSummary(summary) {
+    const receiptRows = Array.isArray(summary?.receipts) ? summary.receipts.map(normalizeReceiptItem) : [];
+    const exportRows = [];
+    for (const exported of Array.isArray(summary?.exports) ? summary.exports : []) {
+      if (!isObject(exported)) continue;
+      if (exported.jsonPath) {
+        exportRows.push(normalizeReceiptItem({
+          id: "export-json-" + String(exported.sequence || exportRows.length + 1),
+          label: "Receipt JSON export",
+          kind: "artifact",
+          status: "passed",
+          capturedAt: exported.timestamp,
+          uri: exported.jsonPath,
+          mimeType: "application/json"
+        }));
+      }
+      if (exported.markdownPath) {
+        exportRows.push(normalizeReceiptItem({
+          id: "export-markdown-" + String(exported.sequence || exportRows.length + 1),
+          label: "Receipt Markdown export",
+          kind: "artifact",
+          status: "passed",
+          capturedAt: exported.timestamp,
+          uri: exported.markdownPath,
+          mimeType: "text/markdown"
+        }));
+      }
+    }
+    return receiptRows.concat(exportRows);
+  }
+
+  function normalizeReceiptItem(receipt) {
+    const item = isObject(receipt) ? receipt : {};
+    return {
+      id: String(item.id || "receipt"),
+      label: String(item.label || item.id || "Receipt"),
+      kind: String(item.kind || "artifact"),
+      status: String(item.status || "info"),
+      capturedAt: String(item.capturedAt || item.timestamp || ""),
+      uri: item.uri ? String(item.uri) : undefined,
+      digest: item.digest ? String(item.digest) : undefined,
+      sizeBytes: typeof item.sizeBytes === "number" ? item.sizeBytes : undefined,
+      mimeType: item.mimeType ? String(item.mimeType) : undefined
+    };
+  }
+
+  function renderReceiptsBody(receipts) {
+    if (!receipts || receipts.length === 0) return '<div class="rw-empty">No receipts captured.</div>';
+    return '<div class="rw-stack">' + receipts.map(renderReceiptRow).join("") + '</div>';
+  }
+
+  function renderReceiptRow(receipt) {
+    return '<article class="rw-row">' +
+      '<div class="rw-row__head"><div class="rw-row__title">' + escapeHtml(receipt.label) + '</div>' + pill(receipt.status || "info") + '</div>' +
+      '<div class="rw-row__meta"><span>' + escapeHtml(receipt.kind) + '</span><span>' + escapeHtml(receipt.capturedAt) + '</span>' +
+      (receipt.mimeType ? '<span>' + escapeHtml(receipt.mimeType) + '</span>' : "") +
+      (receipt.sizeBytes === undefined ? "" : '<span>' + escapeHtml(formatBytes(receipt.sizeBytes)) + '</span>') +
+      '</div>' +
+      (receipt.uri ? '<div class="rw-muted rw-code">' + escapeHtml(receipt.uri) + '</div>' : "") +
+      (receipt.digest ? '<div class="rw-muted rw-code">' + escapeHtml(receipt.digest) + '</div>' : "") +
+    '</article>';
+  }
+
+  function digestText(digest) {
+    if (!isObject(digest) || !digest.value) return "";
+    return (digest.algorithm ? String(digest.algorithm) + ":" : "") + String(digest.value);
+  }
+
+  function formatBytes(value) {
+    if (!Number.isFinite(value)) return String(value);
+    if (value < 1024) return String(value) + " B";
+    if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
+    return (value / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function isObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   document.addEventListener("click", async (event) => {

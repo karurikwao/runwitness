@@ -131,7 +131,8 @@ describe("operator server", () => {
       auth: {
         bearerTokens: [
           { token: "viewer-token", operatorId: "audit-only", roles: ["viewer"] },
-          { token: "approver-token", operatorId: "release-manager", roles: ["approver"], allowedWorkspaces: [root] }
+          { token: "approver-token", operatorId: "release-manager", roles: ["approver"], allowedWorkspaces: [root] },
+          { token: "admin-token-secret", operatorId: "policy-owner", roles: ["admin"], allowedWorkspaces: [root] }
         ]
       }
     });
@@ -143,6 +144,22 @@ describe("operator server", () => {
         headers: { Authorization: "Bearer approver-token" }
       });
       expect(pending.approvals).toEqual([expect.objectContaining({ runId: run.id })]);
+
+      const identity = await getJson(`${server.url}/operator/me`, {
+        headers: { Authorization: "Bearer admin-token-secret" }
+      });
+      expect(identity).toMatchObject({
+        authenticated: true,
+        authRequired: true,
+        principal: { id: "policy-owner", roles: ["admin"], allowedWorkspaces: [root] },
+        capabilities: {
+          canExplainPolicy: true,
+          canRequestPolicyEdit: true,
+          canEditPolicy: false,
+          policyWrites: "disabled"
+        }
+      });
+      expect(JSON.stringify(identity)).not.toContain("admin-token-secret");
 
       const viewerWrite = await fetch(`${server.url}/runs/${run.id}/approvals`, {
         method: "POST",

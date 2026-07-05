@@ -25,7 +25,7 @@
 - Test-result tracking.
 - Proof bundle export.
 
-## Completed Foundations Through Phase 8
+## Completed Foundations Through Next Hardening Slice
 
 The codebase now has a working foundation for local witnessed commands: a CLI, SQLite ledger, append-only event trail, before/after file snapshots, shell-command risk classification, approval records, receipt export, sandbox preflight events, streaming adapter events, and local operator APIs. The phases below describe implemented foundations and remaining limits. They should not be read as a claim of full OS isolation, hosted multi-user security, or complete nested-agent observability.
 
@@ -40,15 +40,16 @@ Implemented:
 - Loaded policy source paths are added to protected paths by default.
 - `apps/cli` exposes layered `run`, `policy check`, and `policy explain` inputs for workspace, user, and run-override policy files.
 - Receipts include policy lineage from `policy_loaded` events, including effective digest, layer precedence, source layer digests, and protected policy source paths.
+- Signed policy bundle primitives can wrap policy layers, compute canonical digests, verify Ed25519 signatures, assess trust, and feed accepted layers into the hierarchy.
 - The orchestrator records `approval_requested` and `approval_recorded` events.
 - Non-interactive runs block risky actions unless `--yes` is supplied for ask-level risks.
 - `packages/core` exposes durable pending approvals, approval recording, receipt access, and optional bearer-token operator auth with viewer/approver/admin roles plus user/workspace scopes.
 
 Current limits:
 
-- Policy lineage is recorded for CLI-loaded policies, but signed policy bundles and richer cockpit policy views remain future work.
-- Policy source and effective-policy digests are not yet attached to every adapter-specific or non-CLI policy path.
-- Filesystem, network, and secret controls are still mostly command-text evaluation and sandbox preflight, not kernel-level enforcement.
+- Signed policy bundles are local primitives; managed distribution and hosted policy administration remain future work.
+- Policy lineage is recorded for CLI-loaded policies and surfaced in the cockpit, but not every adapter-specific or non-CLI policy path.
+- Filesystem, network, and secret controls are still mostly command-text evaluation, broker checks, and sandbox preflight, not kernel-level enforcement.
 
 ## Phase 4: Skill Trust and Runtime Permission Checks
 
@@ -61,11 +62,12 @@ Implemented:
 - A local trust registry distinguishes unsigned, self-signed, trusted, revoked, invalid, and unsupported signatures.
 - Install assessment returns install or quarantine with reasons.
 - Runtime permission checks evaluate shell, filesystem, network, and named-secret actions against declared manifest permissions.
+- `SkillExecutionBroker` records allow/deny decisions for requested shell, filesystem, network, and secret actions with manifest digest linkage and redacted receipts.
 
 Current limits:
 
-- Runtime permission checks are library primitives; there is not yet a complete signed-skill execution broker.
-- Skill identity, grants, signature status, and runtime check outcomes are not yet threaded through every orchestrated run receipt.
+- Real skill execution paths still need to be connected to the broker before this becomes universal enforcement.
+- Skill grants and runtime check outcomes are not yet threaded through every orchestrated run receipt.
 
 ## Phase 5: Hardened Local Sandbox Primitives
 
@@ -77,14 +79,16 @@ Implemented:
 - Path safety checks keep resolved paths inside the workspace, apply write allowlists, and deny protected paths such as `.git`, `.runwitness`, `.env`, dependency, build, coverage, and receipt folders.
 - Environment filtering removes secret-like variables unless explicitly allowed and filters PATH entries by allowed/blocked roots.
 - Rollback baseline and rollback bundle builders capture before-file content for added, modified, and deleted file changes.
+- Rollback apply/dry-run helpers restore modified/deleted files, delete added files, verify before-file hashes, and reject unsafe paths.
+- Network command preflight detects URL and SSH-style hosts and applies host allow/deny/default decisions.
 - Generated and runtime folders such as `.git`, `.runwitness`, `node_modules`, `dist`, `coverage`, and `receipts` are ignored by default in snapshots.
 
 Current limits:
 
 - This is a local hardening layer, not an OS sandbox or container boundary.
-- Network access is not blocked.
+- Network access is preflighted from command text but not blocked at the OS boundary.
 - Command write preflight is heuristic and does not trace every nested process.
-- Rollback bundles are generated primitives; automatic guaranteed rollback is not complete.
+- Rollback helpers are available, but guaranteed automatic rollback across all failure modes is not complete.
 
 ## Phase 6: Streaming Command-Wrapper Adapters
 
@@ -94,13 +98,15 @@ Implemented:
 - `local-command` runs local commands and supports streamed lifecycle/stdout/stderr/finish events.
 - `openclaw` and `hermes` command-wrapper adapters can invoke configured external tools.
 - Command-wrapper adapters stream output, normalize structured JSONL/SSE artifact/action events when emitted by the tool, and emit an `adapter_opaque_action` marker for nested activity they cannot inspect.
+- Orchestrated non-local adapters write streamed adapter events into the run ledger and receipt timeline.
+- Adapter runs accept `AbortSignal` cancellation primitives.
 - `apps/cli` can list built-in adapter foundations.
 
 Current limits:
 
 - OpenClaw and Hermes integrations normalize structured wrapper streams but are not direct native protocol adapters.
-- Browser automation, CI, deployment, Codex, Claude Code, MCP, cancellation, and cleanup adapters remain future work.
-- Adapter events are not yet normalized into every orchestrated ledger path.
+- Browser automation, CI, deployment, Codex, Claude Code, MCP, direct native protocol adapters, and richer cleanup semantics remain future work.
+- Adapter stream normalization is available for orchestrated non-local adapters; direct native protocols remain future work.
 
 ## Phase 7: Live Authenticated Operator Cockpit Foundations
 
@@ -112,12 +118,13 @@ Implemented:
 - `packages/core` exposes local operator API routes for runs, timelines, steps, receipts, receipt artifacts, pending approvals, approval writes, and authenticated event snapshots.
 - Operator auth supports bearer tokens, viewer/approver/admin roles, timing-safe token comparison, and user/workspace scopes.
 - `apps/cli` exposes `runwitness serve` for the local operator API.
+- `runwitness serve` supports token, token-env, JSON auth config, role, user-scope, and workspace-scope flags without printing token values.
+- The live cockpit renders policy lineage/digests from receipt and timeline data, and exposes a gated policy explain/edit placeholder while policy writes remain disabled.
 
 Current limits:
 
-- The CLI `serve` command starts the local API but does not yet expose auth-token flags.
 - The live cockpit is an HTML renderer with client-side fetch/EventSource wiring, not a fully bundled browser application.
-- Policy editing and broader admin surfaces should remain gated until authentication, audit identity, and validation are more complete.
+- Policy editing writes remain disabled until validation and auditing are more complete.
 
 ## Phase 8: User and Secret Isolation Primitives
 
@@ -126,6 +133,9 @@ Implemented:
 - Runs can carry user metadata such as `user` or `userId`.
 - `InMemoryIdentityStore` models users, workspace roles, workspace grants, secret grants, access decisions, and denied-access errors.
 - `LocalSecretBroker` stores local in-memory secret values, returns redacted descriptors, checks workspace/secret grants, and emits redacted audit events plus receipt-shaped records.
+- `EncryptedLocalSecretVault` persists AES-256-GCM encrypted secrets using per-secret scrypt salts and redacted descriptors.
+- `redactKnownSecrets` scrubs configured secret values from strings, records, arrays, object keys, URL-encoded variants, and JSON-escaped variants.
+- `runWitnessedCommand` can redact configured secrets from command stdout/stderr event payloads.
 - Pending approvals and run lists can be filtered by user and workspace.
 - Authenticated operator principals can be scoped to allowed users and workspaces.
 - Approval writes record authenticated operator identity and reject actor spoofing.
@@ -135,16 +145,15 @@ Implemented:
 Current limits:
 
 - There is no full multi-user RBAC product yet.
-- The secret broker is local and in-memory; it is not a durable encrypted per-user vault or universal runtime credential boundary.
-- Command output redaction is not complete.
+- The local broker is in-memory, and the encrypted vault is local; together they are not yet a universal runtime credential boundary.
+- Command output redaction requires explicit configured redaction values and is not automatic for every possible secret source.
 - User/workspace scoping is enforced in the local operator API, not across every adapter, CLI command, receipt, or filesystem path.
 
 ## Remaining Hardening Queue
 
-- Add signed policy bundles and richer policy lineage views in the cockpit.
-- Enforce skill runtime permission checks inside an execution broker.
-- Add stronger process isolation and network controls with OS-specific documentation.
-- Add automatic rollback application and failure handling around rollback bundles.
-- Normalize adapter stream events into the ledger and add cancellation/cleanup.
-- Package the live cockpit as a fuller app with authenticated configuration and policy editing.
-- Add durable encrypted secret storage, command-output redaction, broker integration across runtime paths, and stronger multi-user authorization.
+- Add stronger process isolation and network egress controls with OS-specific documentation.
+- Connect all real skill execution paths to the execution broker.
+- Add automatic rollback orchestration around failed runs.
+- Add direct native adapters for agent runtimes and richer cleanup semantics.
+- Package the live cockpit as a fuller app while keeping policy writes audited and gated.
+- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization.

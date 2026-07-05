@@ -70,6 +70,12 @@ npm run rw -- skill inspect --file skill.yml
 npm run rw -- serve --data-dir .runwitness --host 127.0.0.1 --port 8787
 ```
 
+Start the operator API with bearer auth without printing the token:
+
+```bash
+RUNWITNESS_OPERATOR_TOKEN=change-me npm run rw -- serve --auth-token-env RUNWITNESS_OPERATOR_TOKEN --operator-role approver
+```
+
 Run with the local sandbox primitives enabled:
 
 ```bash
@@ -113,16 +119,15 @@ Implemented foundation:
 - Phase 5 foundation: hardened local sandbox primitives, including write preflight, path safety checks, protected path deny lists, filtered environment and PATH construction, isolated temporary workspaces, and rollback baseline/bundle creation.
 - Phase 6 foundation: streaming adapter contract, registry, local-command adapter streaming, and OpenClaw/Hermes command-wrapper adapters that normalize structured JSONL/SSE events when available while marking unexposed nested activity as opaque.
 - Phase 7 foundation: static and live operator cockpit renderers plus a local operator API for runs, timelines, approvals, receipts, authenticated Server-Sent Events snapshots, and approval actions.
-- Phase 8 foundation: in-memory identity and secret isolation primitives, including workspace roles, explicit secret grants, local secret broker descriptors, redacted secret access audit/receipt records, user/workspace scoped operator views, scoped operator principals, secret-like environment filtering, and skill secret permission declarations/checks.
+- Phase 8 foundation: identity and secret isolation primitives, including workspace roles, explicit secret grants, local secret broker descriptors, encrypted local vault storage, command-output redaction hooks, redacted access audit/receipt records, user/workspace scoped operator views, scoped operator principals, secret-like environment filtering, and skill secret permission declarations/checks.
+- Next hardening slice: signed policy bundles, skill execution broker decisions, rollback apply/dry-run, network command preflight, adapter stream events in the run ledger, cancellation primitives, authenticated `serve` flags, and cockpit policy-lineage views.
 
 Planned hardening:
 
-- Add signed policy bundles and richer policy lineage views in the cockpit.
-- Turn skill runtime permission checks into an enforced execution broker instead of standalone checks.
-- Add stronger process and network boundaries around local execution.
+- Add stronger OS/process and network egress boundaries around local execution.
 - Add richer native adapters for agent runtimes beyond command wrappers.
-- Package the live cockpit as a fuller browser app and add policy editing only after authentication and audit identity are complete.
-- Add durable encrypted secret storage, command-output redaction, broker integration across runtime paths, and stronger multi-user authorization.
+- Package the live cockpit as a fuller browser/desktop app and keep policy writes disabled until authenticated validation/auditing is complete.
+- Integrate vault/broker credential handoff across more runtime paths and add stronger hosted multi-user authorization.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/NEXT_PHASES.md](docs/NEXT_PHASES.md) for the current hardening plan.
 
@@ -150,6 +155,6 @@ tests/
 
 RunWitness starts with observation, policy decisions, local approvals, sandbox preflight primitives, scoped local operator access, and receipt generation. It now has foundations for policy hierarchy, skill trust checks, sandboxed temporary workspaces, streaming adapters, live cockpit rendering, and user/secret isolation primitives.
 
-Those foundations are not the same as OS-level perfect isolation. Commands still execute through host processes, network egress is not blocked by RunWitness, nested tool activity is only visible when an adapter exposes it, and the local secret broker is not yet a durable encrypted vault or universal runtime credential boundary.
+Those foundations are not the same as OS-level perfect isolation. Commands still execute through host processes, network egress is preflighted but not blocked by RunWitness, nested tool activity is only visible when an adapter exposes it, and vault/broker primitives are not yet a universal runtime credential boundary.
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the security model and current limits.

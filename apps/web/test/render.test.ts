@@ -33,7 +33,10 @@ describe("web cockpit renderer", () => {
       ],
       policy: {
         defaultDecision: "ask",
-        rules: [{ code: "recursive_delete", label: "Recursive delete", decision: "ask" }],
+        rules: [
+          { code: "effective-policy", label: "Effective policy digest", decision: "loaded", description: "sha256:policy-digest" },
+          { code: "recursive_delete", label: "Recursive delete", decision: "ask" },
+        ],
       },
       receipts: [
         {
@@ -43,6 +46,7 @@ describe("web cockpit renderer", () => {
           status: "passed",
           capturedAt: "2026-07-05T12:02:00.000Z",
           uri: "./rw_1.md",
+          digest: "sha256:receipt-digest",
         },
       ],
       timeline: [
@@ -62,8 +66,11 @@ describe("web cockpit renderer", () => {
     expect(html).toContain("<title>Operator Cockpit | RunWitness</title>");
     expect(html).toContain("<style>");
     expect(html).toContain("Verify receipts");
+    expect(html).toContain("Effective policy digest");
+    expect(html).toContain("sha256:policy-digest");
     expect(html).toContain("Recursive delete");
     expect(html).toContain("Receipt Markdown");
+    expect(html).toContain("sha256:receipt-digest");
   });
 
   it("can render just the body for embedding", () => {
@@ -82,6 +89,7 @@ describe("web cockpit renderer", () => {
   });
 
   it("renders a live cockpit shell with API polling and approval actions", () => {
+    const secretTokenValue = "super-secret-bearer-token";
     const html = renderLiveWebCockpitDocument({
       live: {
         apiBase: "http://127.0.0.1:8787",
@@ -91,10 +99,16 @@ describe("web cockpit renderer", () => {
     });
 
     expect(html).toContain("rw.token");
+    expect(html).toContain("/operator/me");
     expect(html).toContain("/approvals/pending");
+    expect(html).toContain("/receipts");
+    expect(html).toContain("/receipt?format=json");
+    expect(html).toContain("Effective policy digest");
+    expect(html).toContain("Policy explain/edit placeholder");
     expect(html).toContain("data-approval-run");
     expect(html).toContain("EventSource");
     expect(html).toContain("new URL(apiBase, window.location.href)");
     expect(html).not.toContain("new URL(path.replace(/^\\\\//, \"\"), apiBase, window.location.href)");
+    expect(html).not.toContain(secretTokenValue);
   });
 });

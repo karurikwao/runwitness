@@ -186,6 +186,11 @@ async function handleOperatorRequest(
 
   const principal = auth ? authenticateOperatorRequest(request, url, auth) : undefined;
 
+  if (method === "GET" && segments.length === 2 && segments[0] === "operator" && segments[1] === "me") {
+    sendJson(response, 200, createOperatorIdentity(principal, auth !== undefined));
+    return;
+  }
+
   if (method === "GET" && segments.length === 1 && segments[0] === "events") {
     streamOperatorEvents(options, principal, request, response);
     return;
@@ -524,6 +529,26 @@ function requireApprovalWriteAccess(principal: OperatorPrincipal | undefined): v
   if (!principal.roles.some((role) => role === "approver" || role === "admin")) {
     throw new HttpError(403, "Approval write access requires approver role");
   }
+}
+
+function createOperatorIdentity(
+  principal: OperatorPrincipal | undefined,
+  authRequired: boolean
+): Record<string, unknown> {
+  const roles = principal?.roles ?? [];
+  const isAdmin = roles.includes("admin");
+  return {
+    authenticated: principal !== undefined,
+    authRequired,
+    principal: principal ? principalToPayload(principal) : undefined,
+    capabilities: {
+      canApprove: principal ? roles.some((role) => role === "approver" || role === "admin") : !authRequired,
+      canExplainPolicy: isAdmin,
+      canRequestPolicyEdit: isAdmin,
+      canEditPolicy: false,
+      policyWrites: "disabled"
+    }
+  };
 }
 
 function requireRunAccess(run: RunRecord, principal: OperatorPrincipal | undefined): void {

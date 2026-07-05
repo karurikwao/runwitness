@@ -66,7 +66,8 @@ export class CommandAgentAdapter implements AgentAdapter {
       command: this.#config.executable,
       args,
       cwd: input.workspace,
-      env: mergeEnv(process.env, this.#config.env, input.env)
+      env: mergeEnv(process.env, this.#config.env, input.env),
+      signal: input.signal
     };
   }
 

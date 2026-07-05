@@ -24,32 +24,31 @@ The MVP is a witnessed local-command foundation with policy hierarchy, skill tru
 - Protected policy path checks.
 - Layered policy loading with built-in, workspace, user, and run-override precedence through the CLI run/check/explain paths and policy package.
 - Policy source and effective-policy digests plus explain output and receipt policy lineage.
+- Signed policy bundle parsing, digesting, Ed25519 signing/verification, trust registry assessment, and conversion into policy hierarchy layers.
 - Non-interactive approval recording, including blocked risky commands and `--yes` pre-approval.
 - Local operator API for run inspection, pending approvals, approval recording, and receipt access.
 - Optional bearer-token operator auth with roles and user/workspace scopes in the operator API.
 - JSON receipt export.
 - Markdown receipt export.
-- YAML skill manifest parsing, canonical digesting, permission risk summaries, Ed25519 signature verification, trust registry checks, install/quarantine assessment, and runtime permission check helpers.
-- Adapter registry with streamed `local-command`, `openclaw`, and `hermes` command-wrapper foundations.
-- Static and live operator cockpit rendering foundations.
-- Sandbox write preflight, path safety, protected path deny lists, filtered environments, temporary workspace copies, and rollback bundle primitives.
-- User/workspace filtering and secret-isolation primitives through the in-memory identity store, local secret broker, operator scopes, filtered environments, and skill secret permissions.
+- YAML skill manifest parsing, canonical digesting, permission risk summaries, Ed25519 signature verification, trust registry checks, install/quarantine assessment, runtime permission checks, and a non-executing broker that records allow/deny decisions.
+- Adapter registry with streamed `local-command`, `openclaw`, and `hermes` command-wrapper foundations plus adapter stream events in run ledgers.
+- Static and live authenticated operator cockpit rendering foundations with policy lineage display.
+- Sandbox write preflight, network command preflight, path safety, protected path deny lists, filtered environments, temporary workspace copies, rollback bundle primitives, and rollback apply/dry-run helpers.
+- User/workspace filtering and secret-isolation primitives through the in-memory identity store, local secret broker, encrypted local vault, output redaction helper, operator scopes, filtered environments, and skill secret permissions.
 
 ## Not Included Yet
 
 - Hard OS/process/container sandboxing.
-- Network egress enforcement.
+- Network egress enforcement beyond command-text preflight.
 - Full nested-process tracing.
-- Signed policy bundles for managed environments.
-- A complete signed-skill execution broker that forces runtime permission checks for every action.
 - Full multi-user RBAC.
 - Hosted or fully packaged authenticated cockpit app.
 - Desktop app shell.
 - Direct OpenClaw or Hermes native protocol integrations beyond command-wrapper streaming and structured-event normalization.
 - Native Codex, Claude Code, MCP, browser, CI, or deployment adapters.
 - Browser automation receipts.
-- Durable encrypted secret vaults, universal runtime secret brokering, or command-output redaction.
-- Guaranteed automatic rollback.
+- Universal runtime secret brokering.
+- Guaranteed automatic rollback across all failure modes.
 
 ## Acceptance Criteria
 

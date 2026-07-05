@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyRollbackBundle,
   buildFilteredEnvironment,
   checkWritePath,
   createIsolatedTempWorkspace,
@@ -30,6 +31,39 @@ async function pathExists(targetPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function createRollbackFixture(): Promise<{
+  workspace: string;
+  bundle: Awaited<ReturnType<typeof createRollbackBundle>>;
+}> {
+  const workspace = path.join(root, "workspace");
+  const outputDirectory = path.join(root, "bundles");
+  await writeFile("keep.txt", "keep", workspace);
+  await writeFile("modify.txt", "before", workspace);
+  await writeFile("delete.txt", "delete me", workspace);
+
+  const baseline = await createRollbackBaseline(workspace, {
+    outputDirectory,
+    baselineName: "before",
+    createdAt: "2026-07-05T00:00:00.000Z",
+  });
+
+  await fs.rm(path.join(workspace, "delete.txt"));
+  await writeFile("modify.txt", "after", workspace);
+  await writeFile("add.txt", "new", workspace);
+
+  const afterSnapshot = await createWorkspaceSnapshot(workspace);
+  const bundle = await createRollbackBundle({
+    beforeSnapshot: baseline.snapshot,
+    afterSnapshot,
+    beforeFilesRoot: baseline.filesRoot,
+    outputDirectory,
+    bundleName: "rollback",
+    createdAt: "2026-07-05T00:01:00.000Z",
+  });
+
+  return { workspace, bundle };
 }
 
 beforeEach(async () => {
@@ -211,6 +245,87 @@ describe("rollback bundles", () => {
         modified: ["modify.txt"],
       },
     });
+  });
+
+  it("dry-runs rollback application without changing the workspace", async () => {
+    const { workspace, bundle } = await createRollbackFixture();
+
+    const result = await applyRollbackBundle({
+      workspaceRoot: workspace,
+      manifestPath: bundle.manifestPath,
+      dryRun: true,
+    });
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
+    expect(result.wouldApply.map((entry) => `${entry.action}:${entry.path}`)).toEqual([
+      "delete:add.txt",
+      "restore:delete.txt",
+      "restore:modify.txt",
+    ]);
+    await expect(fs.readFile(path.join(workspace, "modify.txt"), "utf8")).resolves.toBe("after");
+    await expect(fs.readFile(path.join(workspace, "add.txt"), "utf8")).resolves.toBe("new");
+    expect(await pathExists(path.join(workspace, "delete.txt"))).toBe(false);
+  });
+
+  it("applies rollback by deleting added files and restoring modified or deleted files", async () => {
+    const { workspace, bundle } = await createRollbackFixture();
+
+    const result = await applyRollbackBundle({
+      workspaceRoot: workspace,
+      manifestPath: bundle.manifestPath,
+    });
+
+    expect(result.applied.map((entry) => `${entry.action}:${entry.path}`)).toEqual([
+      "delete:add.txt",
+      "restore:delete.txt",
+      "restore:modify.txt",
+    ]);
+    expect(result.errors).toHaveLength(0);
+    expect(result.skipped).toHaveLength(0);
+    expect(await pathExists(path.join(workspace, "add.txt"))).toBe(false);
+    await expect(fs.readFile(path.join(workspace, "modify.txt"), "utf8")).resolves.toBe("before");
+    await expect(fs.readFile(path.join(workspace, "delete.txt"), "utf8")).resolves.toBe("delete me");
+    await expect(fs.readFile(path.join(workspace, "keep.txt"), "utf8")).resolves.toBe("keep");
+  });
+
+  it("rejects path traversal and skips missing before-files without unsafe writes", async () => {
+    const { workspace, bundle } = await createRollbackFixture();
+    const outsideFile = path.join(root, "outside.txt");
+    const modifyEntry = bundle.manifest.entries.find((entry) => entry.path === "modify.txt");
+    if (!modifyEntry) {
+      throw new Error("Expected rollback fixture to include modify.txt");
+    }
+    await fs.writeFile(outsideFile, "outside", "utf8");
+
+    const result = await applyRollbackBundle({
+      workspaceRoot: workspace,
+      bundleDirectory: bundle.directory,
+      manifest: {
+        ...bundle.manifest,
+        entries: [
+          {
+            path: "../outside.txt",
+            changeType: "added",
+            rollbackAction: "delete",
+          },
+          {
+            ...modifyEntry,
+            restoreFrom: "files/missing-before.txt",
+          },
+        ],
+      },
+    });
+
+    expect(result.errors.map((entry) => `${entry.reason}:${entry.path}`)).toEqual([
+      "target_outside_workspace:../outside.txt",
+    ]);
+    expect(result.skipped.map((entry) => `${entry.reason}:${entry.path}`)).toEqual([
+      "missing_before_file:modify.txt",
+    ]);
+    await expect(fs.readFile(outsideFile, "utf8")).resolves.toBe("outside");
+    await expect(fs.readFile(path.join(workspace, "modify.txt"), "utf8")).resolves.toBe("after");
   });
 });
 

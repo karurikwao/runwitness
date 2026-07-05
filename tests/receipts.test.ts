@@ -46,6 +46,20 @@ describe("receipts", () => {
         payload: {
           changes: [{ path: "src/app.ts", type: "added", afterHash: "a".repeat(64), sizeBytes: 10 }]
         }
+      },
+      {
+        sequence: 5,
+        runId: run.id,
+        kind: "adapter_artifact",
+        timestamp: run.startedAt,
+        payload: {
+          artifact: {
+            uri: "reports/adapter.json",
+            kind: "json",
+            sha256: "b".repeat(64),
+            bytes: 20
+          }
+        }
       }
     ];
 
@@ -54,6 +68,14 @@ describe("receipts", () => {
     expect(receipt.summary.tests.passed).toBe(1);
     expect(receipt.summary.approvals.granted).toBe(1);
     expect(receipt.summary.files.created).toBe(1);
+    expect(receipt.artifacts).toEqual([
+      {
+        path: "reports/adapter.json",
+        kind: "json",
+        sha256: "b".repeat(64),
+        bytes: 20
+      }
+    ]);
     expect(receipt.fileTracking.ignoredNames).toEqual([]);
     expect(renderReceiptMarkdown(receipt)).toContain("# RunWitness Receipt");
 

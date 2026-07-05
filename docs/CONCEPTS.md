@@ -42,9 +42,9 @@ Receipts should answer:
 
 ## Policy
 
-A Policy determines whether an action is allowed, denied, or approval-required. The current foundation includes shell-command risk classification, YAML policy loading, shell allow/ask/deny overrides, command-text checks for declared filesystem and network scopes, protected path checks, policy hierarchy loading, source/effective-policy digests, and explain output.
+A Policy determines whether an action is allowed, denied, or approval-required. The current foundation includes shell-command risk classification, YAML policy loading, shell allow/ask/deny overrides, command-text checks for declared filesystem and network scopes, protected path checks, policy hierarchy loading, source/effective-policy digests, signed policy bundle primitives, and explain output.
 
-Policy files are explicit, versioned, and explainable. The policy package can merge built-in, workspace, user, and run-override layers, and the CLI can carry that lineage into run events and receipts. Future hardening should add signed policy bundles, richer cockpit policy views, broader secret/adapter/skill policy integration, and controls beyond command-text analysis.
+Policy files are explicit, versioned, and explainable. The policy package can merge built-in, workspace, user, and run-override layers, and the CLI can carry that lineage into run events and receipts. Policy bundles add signed, digestible layer envelopes for managed distribution. Future hardening should add broader secret/adapter/skill policy integration and controls beyond command-text analysis.
 
 ## Skill
 
@@ -60,7 +60,7 @@ A Skill is a reusable capability. In RunWitness, skills must become declarative 
 
 The current code parses manifests, canonicalizes them, computes a digest, summarizes permission risk, verifies optional Ed25519 signatures, checks a local trust registry, assesses install versus quarantine, and checks runtime shell, filesystem, network, and named-secret actions against declared permissions.
 
-Those checks are primitives. A complete signed-skill execution broker that forces every skill action through the checks is future hardening work.
+The skill execution broker records allow/deny decisions for requested shell, filesystem, network, and secret actions without executing untrusted code. Future hardening should connect every real skill runtime path to that broker.
 
 ## Approval
 
@@ -81,9 +81,9 @@ Adapters should declare what they can expose. If an adapter cannot report nested
 
 ## Sandbox
 
-The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, and rollback bundle primitives.
+The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, network command preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, rollback bundle primitives, and rollback apply/dry-run helpers.
 
-Commands still run as host processes. Network access is not blocked, nested process tracing is incomplete, and rollback bundles are not the same as guaranteed automatic rollback.
+Commands still run as host processes. Network access is detected from command text but not blocked at the OS boundary, nested process tracing is incomplete, and rollback helpers are not the same as guaranteed automatic rollback.
 
 ## Operator
 
@@ -95,4 +95,4 @@ The live cockpit renderer can poll the API, subscribe to event snapshots, and po
 
 The identity primitives model users, workspace roles, workspace grants, secret grants, and access decisions. They are currently in-memory building blocks for checking whether a user can read, write, or administer a workspace or named secret.
 
-The local secret broker stores local in-memory secret values, returns redacted descriptors, checks identity grants before describe/read/write/delete actions, and emits redacted audit events plus receipt-shaped records. It is not yet a durable encrypted vault or a universal runtime credential boundary.
+The local secret broker stores local in-memory secret values, returns redacted descriptors, checks identity grants before describe/read/write/delete actions, and emits redacted audit events plus receipt-shaped records. The encrypted local secret vault persists redacted descriptors plus AES-GCM encrypted values on disk, and redaction helpers can scrub configured secrets from command output. These are still not a universal runtime credential boundary.

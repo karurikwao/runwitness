@@ -121,6 +121,7 @@ export function buildReceipt(run: RunRecord, events: RunEvent[]): RunReceipt {
   const commands: ReceiptCommandRecord[] = [];
   const tests: ReceiptTestRecord[] = [];
   const approvals: ReceiptApprovalRecord[] = [];
+  const artifacts: ReceiptArtifact[] = [];
   const ignoredNames = new Set<string>();
   let policy: ReceiptPolicyLineage | undefined;
 
@@ -187,6 +188,19 @@ export function buildReceipt(run: RunRecord, events: RunEvent[]): RunReceipt {
               : undefined
       });
     }
+
+    if (event.kind === "adapter_artifact") {
+      const artifact = isRecord(event.payload.artifact) ? event.payload.artifact : event.payload;
+      const artifactPath = stringValue(artifact.uri) ?? stringValue(artifact.path);
+      if (artifactPath) {
+        artifacts.push({
+          path: artifactPath,
+          kind: stringValue(artifact.kind) ?? "adapter_artifact",
+          sha256: stringValue(artifact.sha256),
+          bytes: numberValue(artifact.bytes)
+        });
+      }
+    }
   }
 
   const receipt: RunReceipt = {
@@ -209,7 +223,7 @@ export function buildReceipt(run: RunRecord, events: RunEvent[]): RunReceipt {
     commands,
     tests,
     approvals,
-    artifacts: [],
+    artifacts,
     ...(policy ? { policy } : {}),
     fileTracking: {
       ignoredNames: [...ignoredNames].sort((left, right) => left.localeCompare(right))
@@ -381,6 +395,14 @@ function readRecordArray(value: unknown): Record<string, unknown>[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function countBy<T extends object>(items: T[], field: keyof T, knownValues: string[]): CountSummary {

@@ -22,6 +22,7 @@ export interface AgentAdapterRunInput {
   command?: string;
   commandParts?: string[];
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
   metadata?: Record<string, unknown>;
 }
 

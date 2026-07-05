@@ -1,5 +1,13 @@
 import path from "node:path";
-import { isLikelyTestCommand, runLocalCommand } from "@runwitness/adapters";
+import {
+  createDefaultAdapterRegistry,
+  isLikelyTestCommand,
+  runLocalCommand,
+  type AgentAdapter,
+  type AgentAdapterEvent,
+  type AgentAdapterRunInput,
+  type AgentAdapterRunResult
+} from "@runwitness/adapters";
 import { classifyShellCommand, createApprovalRecord, evaluateCommandPolicy, type CommandPolicy } from "@runwitness/policy";
 import { buildReceipt, writeProofBundle } from "@runwitness/receipts";
 import {
@@ -14,6 +22,7 @@ import {
 } from "@runwitness/sandbox";
 import { createStepId } from "./ids.js";
 import { RunLedger } from "./ledger.js";
+import { redactKnownSecrets, type SecretRedactionSource } from "./secretVault.js";
 import type { RunRecord } from "./types.js";
 
 export interface WitnessedCommandOptions {
@@ -23,11 +32,14 @@ export interface WitnessedCommandOptions {
   workspace: string;
   dataDir?: string;
   agent?: string;
+  adapter?: AgentAdapter;
   yes?: boolean;
   receiptDir?: string;
   policy?: CommandPolicy;
   policyMetadata?: Record<string, unknown>;
   sandbox?: WitnessedSandboxOptions;
+  signal?: AbortSignal;
+  secretRedactions?: Iterable<string | SecretRedactionSource>;
 }
 
 export interface WitnessedSandboxOptions {
@@ -53,12 +65,14 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
   const receiptDir = path.resolve(options.receiptDir ?? path.join(dataDir, "receipts"));
   const ledger = await RunLedger.open(dbPath);
   let isolatedWorkspace: IsolatedTempWorkspace | undefined;
+  const adapter = resolveRunAdapter(options);
+  const runAgent = adapter?.id ?? options.agent ?? "local-command";
 
   let run: RunRecord | undefined;
   try {
     run = await ledger.createRun({
       task: options.task,
-      agent: options.agent ?? "local-command",
+      agent: runAgent,
       workspace
     });
 
@@ -199,25 +213,50 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
 
     const before = await snapshotWorkspace(commandWorkspace);
     const stepId = createStepId("cmd");
-    await ledger.appendEvent(run.id, "command_started", { command: options.command, cwd: commandWorkspace }, stepId);
-    const [executable, ...args] = options.commandParts ?? [];
-    const commandResult = await runLocalCommand({
-      command: executable ?? options.command,
-      args: executable ? args : undefined,
-      cwd: commandWorkspace,
-      env: commandEnvironment
-    });
+    const useAdapter = isNonLocalAdapter(adapter);
+    await ledger.appendEvent(
+      run.id,
+      "command_started",
+      {
+        command: options.command,
+        cwd: commandWorkspace,
+        adapterId: useAdapter ? adapter.id : undefined,
+        adapterName: useAdapter ? adapter.name : undefined
+      },
+      stepId
+    );
+    const commandResult = useAdapter
+      ? await runAdapterCommand({
+          adapter,
+          commandWorkspace,
+          commandEnvironment,
+          options,
+          ledger,
+          runId: run.id,
+          stepId,
+          sandboxEnabled,
+          sourceWorkspace: workspace
+        })
+      : await runLocalCommand({
+          ...buildLocalCommandInput(options, commandWorkspace, commandEnvironment),
+          signal: options.signal
+        });
     await ledger.appendEvent(
       run.id,
       "command_finished",
       {
         command: options.command,
+        witnessedCommand: options.command,
+        adapterCommand: useAdapter ? commandResult.command : undefined,
         cwd: commandResult.cwd,
         exitCode: commandResult.exitCode,
         signal: commandResult.signal,
         durationMs: commandResult.durationMs,
-        stdout: truncate(commandResult.stdout),
-        stderr: truncate(commandResult.stderr),
+        stdout: redactAndTruncate(commandResult.stdout, options.secretRedactions),
+        stderr: redactAndTruncate(commandResult.stderr, options.secretRedactions),
+        adapterId: "adapterId" in commandResult ? commandResult.adapterId : undefined,
+        adapterStatus: "status" in commandResult ? commandResult.status : undefined,
+        adapterMetadata: "metadata" in commandResult ? commandResult.metadata : undefined,
         sandboxed: sandboxEnabled,
         sourceWorkspace: workspace
       },
@@ -274,4 +313,109 @@ function truncate(value: string, maxLength = 10000): string {
     return value;
   }
   return `${value.slice(0, maxLength)}\n[truncated ${value.length - maxLength} chars]`;
+}
+
+function redactAndTruncate(value: string, redactions: WitnessedCommandOptions["secretRedactions"]): string {
+  const redacted = redactions ? redactKnownSecrets(value, redactions) : value;
+  return truncate(redacted);
+}
+
+function resolveRunAdapter(options: WitnessedCommandOptions): AgentAdapter | undefined {
+  if (options.adapter) {
+    return options.adapter;
+  }
+  if (!options.agent || options.agent === "local-command") {
+    return undefined;
+  }
+
+  return createDefaultAdapterRegistry().get(options.agent);
+}
+
+function isNonLocalAdapter(adapter: AgentAdapter | undefined): adapter is AgentAdapter {
+  return adapter !== undefined && adapter.id !== "local-command";
+}
+
+function buildLocalCommandInput(
+  options: WitnessedCommandOptions,
+  commandWorkspace: string,
+  commandEnvironment: NodeJS.ProcessEnv
+): Pick<Parameters<typeof runLocalCommand>[0], "command" | "args" | "cwd" | "env"> {
+  const [executable, ...args] = options.commandParts ?? [];
+  return {
+    command: executable ?? options.command,
+    args: executable ? args : undefined,
+    cwd: commandWorkspace,
+    env: commandEnvironment
+  };
+}
+
+interface AdapterCommandOptions {
+  adapter: AgentAdapter;
+  commandWorkspace: string;
+  commandEnvironment: NodeJS.ProcessEnv;
+  options: WitnessedCommandOptions;
+  ledger: RunLedger;
+  runId: string;
+  stepId: string;
+  sandboxEnabled: boolean;
+  sourceWorkspace: string;
+}
+
+async function runAdapterCommand({
+  adapter,
+  commandWorkspace,
+  commandEnvironment,
+  options,
+  ledger,
+  runId,
+  stepId,
+  sandboxEnabled,
+  sourceWorkspace
+}: AdapterCommandOptions): Promise<AgentAdapterRunResult> {
+  const input: AgentAdapterRunInput = {
+    task: options.task,
+    workspace: commandWorkspace,
+    command: options.command,
+    commandParts: options.commandParts,
+    env: commandEnvironment,
+    signal: options.signal,
+    metadata: {
+      sandboxed: sandboxEnabled,
+      sourceWorkspace
+    }
+  };
+
+  if (!adapter.runStream) {
+    return adapter.run(input);
+  }
+
+  return adapter.runStream(input, (event) => appendAdapterLedgerEvent(ledger, runId, event, stepId));
+}
+
+async function appendAdapterLedgerEvent(
+  ledger: RunLedger,
+  runId: string,
+  event: AgentAdapterEvent,
+  stepId: string
+): Promise<void> {
+  const payload: Record<string, unknown> = {
+    adapterId: event.adapterId,
+    adapterSequence: event.sequence,
+    adapterTimestamp: event.timestamp
+  };
+
+  if (event.message !== undefined) {
+    payload.message = event.message;
+  }
+  if (event.stream !== undefined) {
+    payload.stream = event.stream;
+  }
+  if (event.artifact !== undefined) {
+    payload.artifact = event.artifact;
+  }
+  if (event.payload !== undefined) {
+    payload.adapterPayload = event.payload;
+  }
+
+  await ledger.appendEvent(runId, event.kind, payload, stepId);
 }

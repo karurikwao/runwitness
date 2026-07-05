@@ -3,10 +3,19 @@ import pc from "picocolors";
 import { promises as fs } from "node:fs";
 import { inspectSkillManifest } from "@runwitness/skills";
 import { createDefaultAdapterRegistry } from "@runwitness/adapters";
-import { listenOperatorServer, RunLedger, runWitnessedCommand } from "@runwitness/core";
+import {
+  listenOperatorServer,
+  RunLedger,
+  runWitnessedCommand,
+  type OperatorAuthOptions,
+  type OperatorBearerCredential,
+  type OperatorRole
+} from "@runwitness/core";
 import { evaluateCommandPolicy, loadPolicyHierarchy } from "@runwitness/policy";
 
 export const program = new Command();
+
+const OPERATOR_ROLES = new Set<OperatorRole>(["viewer", "approver", "admin"]);
 
 program
   .name("runwitness")
@@ -161,17 +170,26 @@ program
   .option("--data-dir <path>", "RunWitness data directory", ".runwitness")
   .option("--host <host>", "host to bind", "127.0.0.1")
   .option("--port <port>", "port to bind", "8787")
-  .action(async (options: Record<string, string | undefined>) => {
-    const dataDir = options.dataDir ?? ".runwitness";
-    const host = options.host ?? "127.0.0.1";
+  .option("--auth-token <token>", "bearer token for operator API auth; repeatable", collectOption, [] as string[])
+  .option("--auth-token-env <name>", "environment variable containing a bearer token; repeatable", collectOption, [] as string[])
+  .option("--auth-config <path>", "JSON auth config with bearerTokens entries")
+  .option("--operator-id <id>", "operator id for token flags")
+  .option("--operator-role <role>", "role for token flags: viewer, approver, or admin; repeatable or comma-separated", collectOption, [] as string[])
+  .option("--operator-user-scope <user>", "allowed user/userId for token flags; repeatable or comma-separated", collectOption, [] as string[])
+  .option("--operator-workspace-scope <path>", "allowed workspace path for token flags; repeatable or comma-separated", collectOption, [] as string[])
+  .action(async (options: Record<string, unknown>) => {
+    const dataDir = String(options.dataDir ?? ".runwitness");
+    const host = String(options.host ?? "127.0.0.1");
     const port = Number(options.port ?? "8787");
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
       throw new Error("--port must be an integer between 0 and 65535");
     }
+    const auth = await resolveServeAuthOptions(options);
     const ledger = await RunLedger.open(`${dataDir}/runwitness.sqlite`);
-    const server = await listenOperatorServer({ ledger, host, port });
+    const server = await listenOperatorServer({ ledger, host, port, auth });
     console.log(pc.bold("RunWitness operator server listening"));
     console.log(server.url);
+    console.log(`Auth: ${auth ? `bearer (${auth.bearerTokens.length} credential${auth.bearerTokens.length === 1 ? "" : "s"})` : "disabled"}`);
     const shutdown = async () => {
       await server.close();
       ledger.close();
@@ -238,4 +256,160 @@ function toStringList(value: unknown): string[] | undefined {
     return [value];
   }
   return undefined;
+}
+
+function collectOption(value: string, previous: string[] | undefined): string[] {
+  return [...(previous ?? []), value];
+}
+
+async function resolveServeAuthOptions(options: Record<string, unknown>): Promise<OperatorAuthOptions | undefined> {
+  const configuredCredentials = options.authConfig
+    ? await readServeAuthConfig(String(options.authConfig))
+    : [];
+  const inlineTokens = [
+    ...splitStringList(toStringList(options.authToken)),
+    ...readTokensFromEnvironment(splitStringList(toStringList(options.authTokenEnv)))
+  ];
+  const inlineCredentials = inlineTokens.map((token) =>
+    createInlineBearerCredential(token, {
+      operatorId: typeof options.operatorId === "string" && options.operatorId.length > 0 ? options.operatorId : undefined,
+      roles: parseOperatorRoles(splitStringList(toStringList(options.operatorRole)), "--operator-role"),
+      allowedUsers: splitStringList(toStringList(options.operatorUserScope)),
+      allowedWorkspaces: splitStringList(toStringList(options.operatorWorkspaceScope))
+    })
+  );
+  const bearerTokens = [...configuredCredentials, ...inlineCredentials];
+
+  return bearerTokens.length > 0 ? { bearerTokens } : undefined;
+}
+
+async function readServeAuthConfig(filePath: string): Promise<Array<string | OperatorBearerCredential>> {
+  const parsed = JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
+  const bearerTokens = Array.isArray(parsed) ? parsed : isRecord(parsed) ? parsed.bearerTokens : undefined;
+  if (!Array.isArray(bearerTokens)) {
+    throw new Error("--auth-config must be a JSON object with bearerTokens or a bearer token array");
+  }
+
+  return bearerTokens.map((credential, index) => parseConfiguredCredential(credential, `bearerTokens[${index}]`));
+}
+
+function parseConfiguredCredential(value: unknown, label: string): string | OperatorBearerCredential {
+  if (typeof value === "string") {
+    return requireNonEmptySecret(value, label);
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be a token string or credential object`);
+  }
+
+  const token =
+    typeof value.token === "string"
+      ? value.token
+      : typeof value.tokenEnv === "string"
+        ? readTokenFromEnvironment(value.tokenEnv)
+        : undefined;
+  if (!token) {
+    throw new Error(`${label} must include token or tokenEnv`);
+  }
+
+  const credential: OperatorBearerCredential = {
+    token: requireNonEmptySecret(token, `${label}.token`)
+  };
+  if (typeof value.operatorId === "string" && value.operatorId.length > 0) {
+    credential.operatorId = value.operatorId;
+  }
+  const roles = parseOperatorRoles(readStringList(value.roles), `${label}.roles`);
+  if (roles) {
+    credential.roles = roles;
+  }
+  const allowedUsers = readStringList(value.allowedUsers);
+  if (allowedUsers.length > 0) {
+    credential.allowedUsers = allowedUsers;
+  }
+  const allowedWorkspaces = readStringList(value.allowedWorkspaces);
+  if (allowedWorkspaces.length > 0) {
+    credential.allowedWorkspaces = allowedWorkspaces;
+  }
+  return credential;
+}
+
+function createInlineBearerCredential(
+  token: string,
+  options: Pick<OperatorBearerCredential, "operatorId" | "roles" | "allowedUsers" | "allowedWorkspaces">
+): OperatorBearerCredential {
+  const credential: OperatorBearerCredential = {
+    token: requireNonEmptySecret(token, "--auth-token")
+  };
+  if (options.operatorId) {
+    credential.operatorId = options.operatorId;
+  }
+  if (options.roles && options.roles.length > 0) {
+    credential.roles = options.roles;
+  }
+  if (options.allowedUsers && options.allowedUsers.length > 0) {
+    credential.allowedUsers = options.allowedUsers;
+  }
+  if (options.allowedWorkspaces && options.allowedWorkspaces.length > 0) {
+    credential.allowedWorkspaces = options.allowedWorkspaces;
+  }
+  return credential;
+}
+
+function parseOperatorRoles(values: string[], label: string): OperatorRole[] | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  const roles = uniqueStrings(values).map((role) => {
+    if (!OPERATOR_ROLES.has(role as OperatorRole)) {
+      throw new Error(`${label} must be one of: viewer, approver, admin`);
+    }
+    return role as OperatorRole;
+  });
+  return roles.length > 0 ? roles : undefined;
+}
+
+function readTokensFromEnvironment(names: string[]): string[] {
+  return names.map(readTokenFromEnvironment);
+}
+
+function readTokenFromEnvironment(name: string): string {
+  const token = process.env[name];
+  if (!token) {
+    throw new Error(`Environment variable ${name} is not set or empty`);
+  }
+  return token;
+}
+
+function requireNonEmptySecret(value: string, label: string): string {
+  if (value.length === 0) {
+    throw new Error(`${label} must not be empty`);
+  }
+  return value;
+}
+
+function readStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return splitStringList(value.map(String));
+  }
+  if (typeof value === "string") {
+    return splitStringList([value]);
+  }
+  return [];
+}
+
+function splitStringList(values: string[] | undefined): string[] {
+  return uniqueStrings(
+    (values ?? [])
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+  );
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

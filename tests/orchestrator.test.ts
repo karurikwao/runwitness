@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RunLedger, runWitnessedCommand } from "../packages/core/src/index.js";
+import type { AgentAdapter, AgentAdapterEvent, AgentAdapterRunInput } from "../packages/adapters/src/index.js";
 
 let root: string;
 
@@ -55,6 +56,88 @@ describe("runWitnessedCommand", () => {
 
     expect(result.run.status).toBe("completed");
     expect(await fs.readFile(path.join(root, "quoted.txt"), "utf8")).toBe("ok");
+  });
+
+  it("records streamed non-local adapter events in the ledger timeline and receipt", async () => {
+    const adapter = createFakeStreamAdapter();
+
+    const result = await runWitnessedCommand({
+      task: "Run through a fake stream adapter",
+      command: "echo adapter",
+      workspace: root,
+      adapter
+    });
+
+    expect(result.run.status).toBe("completed");
+    expect(result.run.agent).toBe("fake-stream");
+    expect(await fs.readFile(path.join(root, "adapter-output.txt"), "utf8")).toBe("ok");
+
+    const ledger = await RunLedger.open(result.dbPath);
+    try {
+      const events = ledger.timeline(result.run.id);
+      expect(events.map((event) => event.kind)).toEqual(
+        expect.arrayContaining([
+          "command_started",
+          "adapter_started",
+          "adapter_stdout",
+          "adapter_artifact",
+          "adapter_opaque_action",
+          "adapter_finished",
+          "command_finished",
+          "file_changes"
+        ])
+      );
+      expect(events.find((event) => event.kind === "adapter_artifact")?.payload).toMatchObject({
+        adapterId: "fake-stream",
+        artifact: {
+          uri: "adapter-output.txt",
+          label: "Fake output"
+        }
+      });
+      expect(events.find((event) => event.kind === "command_started")?.payload.command).toBe("echo adapter");
+      expect(events.find((event) => event.kind === "command_finished")?.payload).toMatchObject({
+        command: "echo adapter",
+        adapterCommand: "fake stream adapter"
+      });
+    } finally {
+      ledger.close();
+    }
+
+    const receipt = JSON.parse(await fs.readFile(result.receiptJsonPath, "utf8")) as {
+      timeline: Array<{ kind: string }>;
+    };
+    expect(receipt.timeline.map((event) => event.kind)).toEqual(
+      expect.arrayContaining(["adapter_artifact", "adapter_opaque_action"])
+    );
+  });
+
+  it("redacts configured secret values from command output events", async () => {
+    const secretValue = "sk_live_orchestrator_secret_output_value";
+    const result = await runWitnessedCommand({
+      task: "Redact command output",
+      command: "node -e \"console.log(process.env.SECRET_VALUE); console.error(process.env.SECRET_VALUE)\"",
+      commandParts: ["node", "-e", "console.log(process.env.SECRET_VALUE); console.error(process.env.SECRET_VALUE)"],
+      workspace: root,
+      secretRedactions: [secretValue],
+      sandbox: {
+        environment: {
+          extraEnv: {
+            SECRET_VALUE: secretValue
+          },
+          allowKeys: ["SECRET_VALUE"]
+        }
+      }
+    });
+
+    const ledger = await RunLedger.open(result.dbPath);
+    try {
+      const commandFinished = ledger.timeline(result.run.id).find((event) => event.kind === "command_finished");
+      const serialized = JSON.stringify(commandFinished?.payload);
+      expect(serialized).not.toContain(secretValue);
+      expect(serialized).toContain("[REDACTED_SECRET]");
+    } finally {
+      ledger.close();
+    }
   });
 
   it("blocks risky commands without auto approval and still exports a receipt", async () => {
@@ -121,4 +204,72 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function createFakeStreamAdapter(): AgentAdapter {
+  return {
+    id: "fake-stream",
+    name: "Fake Stream Adapter",
+    capabilities: {
+      externalTool: true,
+      eventStream: true,
+      artifacts: true,
+      opaqueActions: true
+    },
+    async run(input: AgentAdapterRunInput) {
+      await fs.writeFile(path.join(input.workspace, "adapter-output.txt"), "ok", "utf8");
+      return {
+        adapterId: "fake-stream",
+        status: "completed",
+        command: "fake stream adapter",
+        cwd: input.workspace,
+        exitCode: 0,
+        signal: null,
+        durationMs: 1,
+        stdout: "adapter stdout\n",
+        stderr: "",
+        metadata: {}
+      };
+    },
+    async runStream(input, onEvent) {
+      let sequence = 0;
+      const emit = async (event: Omit<AgentAdapterEvent, "adapterId" | "sequence" | "timestamp">): Promise<void> => {
+        sequence += 1;
+        await onEvent({
+          ...event,
+          adapterId: "fake-stream",
+          sequence,
+          timestamp: new Date().toISOString()
+        });
+      };
+
+      await emit({ kind: "adapter_started", message: "Fake adapter started." });
+      await emit({ kind: "adapter_stdout", stream: "stdout", message: "adapter stdout\n" });
+      await emit({
+        kind: "adapter_artifact",
+        message: "Fake output artifact.",
+        artifact: { uri: "adapter-output.txt", label: "Fake output" }
+      });
+      await emit({
+        kind: "adapter_opaque_action",
+        message: "Fake nested action.",
+        payload: { tool: "fake-nested-tool" }
+      });
+      await fs.writeFile(path.join(input.workspace, "adapter-output.txt"), "ok", "utf8");
+      await emit({ kind: "adapter_finished", message: "Fake adapter finished.", payload: { exitCode: 0 } });
+
+      return {
+        adapterId: "fake-stream",
+        status: "completed",
+        command: "fake stream adapter",
+        cwd: input.workspace,
+        exitCode: 0,
+        signal: null,
+        durationMs: 1,
+        stdout: "adapter stdout\n",
+        stderr: "",
+        metadata: {}
+      };
+    }
+  };
 }

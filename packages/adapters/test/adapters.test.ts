@@ -96,6 +96,40 @@ describe("local command adapter", () => {
     expect(events.find((event) => event.kind === "adapter_stderr")?.message).toContain("stream-warn");
   });
 
+  it("accepts an AbortSignal without changing normal local command execution", async () => {
+    const adapter = createLocalCommandAdapter();
+    const controller = new AbortController();
+
+    const result = await adapter.run({
+      task: "Run with cancellation interface",
+      workspace: root,
+      commandParts: [process.execPath, "-e", "console.log('signal-ok')"],
+      signal: controller.signal
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("signal-ok");
+  });
+
+  it("short-circuits local command execution when already aborted", async () => {
+    const adapter = createLocalCommandAdapter();
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await adapter.run({
+      task: "Abort before running",
+      workspace: root,
+      commandParts: [process.execPath, "-e", "console.log('should-not-run')"],
+      signal: controller.signal
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.exitCode).toBeNull();
+    expect(result.signal).toBe("SIGTERM");
+    expect(result.stdout).toBe("");
+  });
+
   it("waits for async stream handlers before resolving", async () => {
     const adapter = createLocalCommandAdapter();
     const handled: string[] = [];
