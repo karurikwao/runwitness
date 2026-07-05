@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "moduleDetection": "force",
+    "rootDir": ".",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "types": [
+      "node"
+    ],
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@runwitness/core": [
+        "./packages/core/src/index.ts"
+      ],
+      "@runwitness/core/*": [
+        "./packages/core/src/*"
+      ],
+      "@runwitness/policy": [
+        "./packages/policy/src/index.ts"
+      ],
+      "@runwitness/policy/*": [
+        "./packages/policy/src/*"
+      ],
+      "@runwitness/receipts": [
+        "./packages/receipts/src/index.ts"
+      ],
+      "@runwitness/receipts/*": [
+        "./packages/receipts/src/*"
+      ],
+      "@runwitness/adapters": [
+        "./packages/adapters/src/index.ts"
+      ],
+      "@runwitness/adapters/*": [
+        "./packages/adapters/src/*"
+      ],
+      "@runwitness/sandbox": [
+        "./packages/sandbox/src/index.ts"
+      ],
+      "@runwitness/sandbox/*": [
+        "./packages/sandbox/src/*"
+      ],
+      "@runwitness/skills": [
+        "./packages/skills/src/index.ts"
+      ],
+      "@runwitness/skills/*": [
+        "./packages/skills/src/*"
+      ],
+      "@runwitness/ui": [
+        "./packages/ui/src/index.ts"
+      ],
+      "@runwitness/ui/*": [
+        "./packages/ui/src/*"
+      ]
+    }
+  },
+  "include": [
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/dist",
+    "build",
+    "coverage",
+    ".turbo",
+    ".vite",
+    ".next",
+    "out",
+    "release"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@runwitness/receipts",
+  "version": "0.1.0",
+  "description": "Receipt schema, Markdown exporter, and proof bundle writer for RunWitness.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./schema": "./schemas/receipt.schema.json"
+  },
+  "files": [
+    "src",
+    "schemas",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "license": "UNLICENSED"
+}

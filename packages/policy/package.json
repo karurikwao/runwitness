@@ -1,0 +1,15 @@
+{
+  "name": "@runwitness/policy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "scripts": {
+    "check": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./dist/src/index.js"
+  }
+}
