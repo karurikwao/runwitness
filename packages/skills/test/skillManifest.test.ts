@@ -142,7 +142,7 @@ name: stable-skill
     };
 
     expect(verifySkillManifestSignature(signedManifest)).toMatchObject({
-      status: "valid",
+      status: "self-signed",
       algorithm: "ed25519"
     });
 
@@ -182,7 +182,7 @@ name: stable-skill
         signature: signatureValue
       })
     ).toMatchObject({
-      status: "valid",
+      status: "self-signed",
       algorithm: "ed25519"
     });
   });

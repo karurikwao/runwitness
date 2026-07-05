@@ -25,6 +25,11 @@ export interface NetworkAllowDeclaration {
   reason?: string;
 }
 
+export interface ProtectedPathDeclaration {
+  path: string;
+  reason?: string;
+}
+
 export interface CommandPolicyDefaults {
   undeclaredFileRead: PolicyDecision;
   undeclaredFileWrite: PolicyDecision;
@@ -45,6 +50,9 @@ export interface CommandPolicy {
   network: {
     allow: NetworkAllowDeclaration[];
   };
+  protected?: {
+    paths: ProtectedPathDeclaration[];
+  };
   defaults: CommandPolicyDefaults;
   classifier: ClassifyShellCommandOptions;
 }
@@ -54,7 +62,8 @@ export type CommandPolicyReasonCode =
   | "shell_override"
   | "filesystem_read_scope"
   | "filesystem_write_scope"
-  | "network_scope";
+  | "network_scope"
+  | "protected_path";
 
 export interface CommandPolicyEvaluationReason {
   code: CommandPolicyReasonCode;
@@ -87,6 +96,14 @@ export interface NetworkAccessCheck {
   matchedAllow?: string;
 }
 
+export interface ProtectedPolicyPathCheck {
+  path: string;
+  protected: boolean;
+  decision: PolicyDecision;
+  matchedPath?: string;
+  reason?: string;
+}
+
 export interface CommandPolicyEvaluation {
   actionType: "shell_command";
   command: string;
@@ -101,6 +118,7 @@ export interface CommandPolicyEvaluation {
     filesystem: {
       read: FilesystemAccessCheck[];
       write: FilesystemAccessCheck[];
+      protected: ProtectedPolicyPathCheck[];
     };
     network: NetworkAccessCheck[];
   };
@@ -115,6 +133,7 @@ interface RawPolicy {
   shell?: unknown;
   filesystem?: unknown;
   network?: unknown;
+  protected?: unknown;
   defaults?: unknown;
   classifier?: unknown;
 }
@@ -173,6 +192,7 @@ export function evaluateCommandPolicy(command: string, policy: CommandPolicy): C
     ...access.filesystem.read.filter(isUndeclaredCheck).map(toFilesystemReason),
     ...access.filesystem.write.filter(isUndeclaredCheck).map(toFilesystemReason),
     ...access.network.filter(isUndeclaredNetworkCheck).map(toNetworkReason),
+    ...access.filesystem.protected.filter(isDeniedProtectedPathCheck).map(toProtectedPathReason),
   ];
   const reasons: CommandPolicyEvaluationReason[] = [
     ...classifier.reasons.map((reason) => ({
@@ -221,6 +241,9 @@ function createDefaultPolicy(): CommandPolicy {
     network: {
       allow: defaultNetworkAllow.map((allow) => ({ ...allow })),
     },
+    protected: {
+      paths: [],
+    },
     defaults: { ...defaultPolicyDefaults },
     classifier: {},
   };
@@ -234,8 +257,13 @@ function normalizePolicy(raw: RawPolicy): CommandPolicy {
   const shell = asOptionalRecord(raw.shell, "shell");
   const filesystem = asOptionalRecord(raw.filesystem, "filesystem");
   const network = asOptionalRecord(raw.network, "network");
+  const protectedPolicy = asOptionalRecord(raw.protected, "protected");
   const defaults = asOptionalRecord(raw.defaults, "defaults");
   const classifier = asOptionalRecord(raw.classifier, "classifier");
+  const protectedPaths = [
+    ...normalizeProtectedPaths(protectedPolicy?.paths, "protected.paths"),
+    ...normalizeProtectedPaths(filesystem?.protected, "filesystem.protected"),
+  ];
 
   return {
     version: 1,
@@ -250,6 +278,9 @@ function normalizePolicy(raw: RawPolicy): CommandPolicy {
     },
     network: {
       allow: normalizeNetworkAllows(network?.allow, "network.allow", defaultNetworkAllow),
+    },
+    protected: {
+      paths: protectedPaths,
     },
     defaults: {
       undeclaredFileRead: normalizeDecision(
@@ -366,6 +397,26 @@ function normalizeNetworkAllow(entry: NetworkAllowInput, field: string): Network
   };
 }
 
+function normalizeProtectedPaths(value: unknown, field: string): ProtectedPathDeclaration[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${field} must be a list`);
+  }
+
+  return value.map((entry, index) => normalizeProtectedPath(entry as FilesystemScopeInput, `${field}[${index}]`));
+}
+
+function normalizeProtectedPath(entry: FilesystemScopeInput, field: string): ProtectedPathDeclaration {
+  const scope = normalizeFilesystemScope(entry, field);
+  return {
+    path: scope.path,
+    ...(scope.reason ? { reason: scope.reason } : {}),
+  };
+}
+
 function normalizeClassifierOptions(value: Record<string, unknown> | undefined): ClassifyShellCommandOptions {
   if (value === undefined) {
     return {};
@@ -445,11 +496,13 @@ function analyzeCommandAccess(
 ): CommandPolicyEvaluation["access"] {
   const accesses = detectFilesystemAccess(command);
   const hosts = detectNetworkHosts(command);
+  const writeAccess = accesses.write.map((path) => checkFilesystemAccess(path, "write", policy));
 
   return {
     filesystem: {
       read: accesses.read.map((path) => checkFilesystemAccess(path, "read", policy)),
-      write: accesses.write.map((path) => checkFilesystemAccess(path, "write", policy)),
+      write: writeAccess,
+      protected: accesses.write.map((path) => checkProtectedPolicyPath(path, policy)),
     },
     network: hosts.map((host) => checkNetworkAccess(host, policy)),
   };
@@ -480,6 +533,21 @@ function checkNetworkAccess(host: string, policy: CommandPolicy): NetworkAccessC
     decision: matchedAllow === undefined ? policy.defaults.undeclaredNetwork : "allow",
     ...(matchedAllow ? { matchedAllow } : {}),
   };
+}
+
+export function checkProtectedPolicyPath(path: string, policy: CommandPolicy): ProtectedPolicyPathCheck {
+  const matchedPath = policy.protected?.paths.find((scope) => pathMatchesScope(path, scope.path));
+  return {
+    path,
+    protected: matchedPath !== undefined,
+    decision: matchedPath === undefined ? "allow" : "deny",
+    ...(matchedPath ? { matchedPath: matchedPath.path } : {}),
+    ...(matchedPath?.reason ? { reason: matchedPath.reason } : {}),
+  };
+}
+
+export function isProtectedPolicyPath(path: string, policy: CommandPolicy): boolean {
+  return checkProtectedPolicyPath(path, policy).protected;
 }
 
 function detectFilesystemAccess(command: string): { read: string[]; write: string[] } {
@@ -520,8 +588,15 @@ function collectCommandFilesystemAccess(
     return;
   }
 
-  if (["mkdir", "md", "touch", "new-item"].includes(commandName)) {
-    pathArgs.forEach((path) => write.add(path));
+  if (["mkdir", "md", "touch", "new-item", "ni"].includes(commandName)) {
+    const targets = collectPowerShellPathOperands(args, pathArgs);
+    targets.forEach((path) => write.add(path));
+    return;
+  }
+
+  if (["add-content", "out-file", "set-content"].includes(commandName)) {
+    const targets = collectPowerShellPathOperands(args, pathArgs);
+    targets.forEach((path) => write.add(path));
     return;
   }
 
@@ -540,6 +615,26 @@ function collectCommandFilesystemAccess(
   if (["curl", "curl.exe", "wget", "wget.exe", "invoke-webrequest", "iwr"].includes(commandName)) {
     collectNetworkToolFilesystemAccess(args, read, write);
   }
+}
+
+function collectPowerShellPathOperands(args: string[], fallbackPathArgs: string[]): string[] {
+  const pathFlags = new Set(["-destination", "-filepath", "-literalpath", "-path"]);
+  const explicit: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+    if (arg !== undefined && next !== undefined && pathFlags.has(arg.toLowerCase()) && isLikelyPathToken(next)) {
+      explicit.push(next);
+    }
+  }
+
+  if (explicit.length > 0) {
+    return explicit;
+  }
+
+  const firstPath = fallbackPathArgs[0];
+  return firstPath === undefined ? [] : [firstPath];
 }
 
 function collectNetworkToolFilesystemAccess(args: string[], read: Set<string>, write: Set<string>): void {
@@ -659,6 +754,10 @@ function isUndeclaredNetworkCheck(check: NetworkAccessCheck): boolean {
   return !check.allowed && check.decision !== "allow";
 }
 
+function isDeniedProtectedPathCheck(check: ProtectedPolicyPathCheck): boolean {
+  return check.protected;
+}
+
 function toShellOverrideReason(match: CommandPolicyMatch): CommandPolicyEvaluationReason {
   return {
     code: "shell_override",
@@ -689,6 +788,17 @@ function toNetworkReason(check: NetworkAccessCheck): CommandPolicyEvaluationReas
     evidence: check.host,
     source: "policy",
     decision: check.decision,
+  };
+}
+
+function toProtectedPathReason(check: ProtectedPolicyPathCheck): CommandPolicyEvaluationReason {
+  return {
+    code: "protected_path",
+    severity: "high",
+    summary: "Command writes a protected policy path.",
+    evidence: check.path,
+    source: "policy",
+    decision: "deny",
   };
 }
 

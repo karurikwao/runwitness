@@ -61,4 +61,64 @@ describe("receipts", () => {
     const validate = ajv.compile(schema);
     expect(validate(receipt), JSON.stringify(validate.errors, null, 2)).toBe(true);
   });
+
+  it("includes policy lineage from policy_loaded events", () => {
+    const run: RunRecord = {
+      id: "rw_policy",
+      task: "Policy lineage",
+      agent: "test-agent",
+      status: "completed",
+      workspace: "/tmp/runwitness",
+      startedAt: "2026-07-04T00:00:00.000Z",
+      endedAt: "2026-07-04T00:00:01.000Z",
+      metadata: {}
+    };
+    const digest = "b".repeat(64);
+    const layerDigest = "c".repeat(64);
+    const events: RunEvent[] = [
+      {
+        sequence: 1,
+        runId: run.id,
+        kind: "policy_loaded",
+        timestamp: run.startedAt,
+        payload: {
+          digest: { algorithm: "sha256", value: digest, canonical: "{}" },
+          precedence: ["built-in", "workspace", "user", "run-override"],
+          layers: [
+            {
+              kind: "workspace",
+              label: "Workspace policy",
+              precedence: 1,
+              path: "/tmp/runwitness/runwitness.policy.yml",
+              digest: { algorithm: "sha256", value: layerDigest },
+              sourceLength: 42,
+              protectedPaths: [{ path: "runwitness.policy.yml", reason: "Loaded workspace policy source." }]
+            }
+          ],
+          protectedSourcePaths: [{ path: "runwitness.policy.yml", reason: "Loaded workspace policy source." }]
+        }
+      }
+    ];
+
+    const receipt = buildReceipt(run, events);
+
+    expect(receipt.policy).toMatchObject({
+      digest: { algorithm: "sha256", value: digest },
+      precedence: ["built-in", "workspace", "user", "run-override"],
+      layers: [
+        {
+          kind: "workspace",
+          path: "/tmp/runwitness/runwitness.policy.yml",
+          digest: { algorithm: "sha256", value: layerDigest },
+          protectedPaths: [{ path: "runwitness.policy.yml" }]
+        }
+      ],
+      protectedSourcePaths: [{ path: "runwitness.policy.yml" }]
+    });
+    expect(renderReceiptMarkdown(receipt)).toContain("## Policy");
+
+    const ajv = new Ajv2020({ validateFormats: false });
+    const validate = ajv.compile(schema);
+    expect(validate(receipt), JSON.stringify(validate.errors, null, 2)).toBe(true);
+  });
 });

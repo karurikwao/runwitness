@@ -1,12 +1,20 @@
 import { spawn } from "node:child_process";
 import { renderInvocation } from "./invocation.js";
-import type { AgentAdapter, AgentAdapterRunInput, AgentAdapterRunResult } from "./types.js";
+import type {
+  AgentAdapter,
+  AgentAdapterEvent,
+  AgentAdapterRunInput,
+  AgentAdapterRunResult,
+  AgentAdapterStreamHandler
+} from "./types.js";
 
 export interface LocalCommandInput {
   command: string;
   args?: string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  adapterId?: string;
+  onEvent?: AgentAdapterStreamHandler;
 }
 
 export interface LocalCommandResult {
@@ -37,11 +45,33 @@ export function createLocalCommandAdapter(options: LocalCommandAdapterOptions = 
     name: options.name ?? "Local Command",
     description: options.description ?? "Runs a configured command in the local workspace.",
     capabilities: {
-      localExecution: true
+      localExecution: true,
+      eventStream: true,
+      artifacts: true
     },
     async run(input: AgentAdapterRunInput): Promise<AgentAdapterRunResult> {
       const invocation = createLocalInvocation(input, options.env);
       const result = await runLocalCommand(invocation);
+      return {
+        adapterId: id,
+        status: result.exitCode === 0 ? "completed" : "failed",
+        command: renderInvocation(invocation),
+        cwd: result.cwd,
+        exitCode: result.exitCode,
+        signal: result.signal,
+        durationMs: result.durationMs,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        metadata: input.metadata
+      };
+    },
+    async runStream(input: AgentAdapterRunInput, onEvent: AgentAdapterStreamHandler): Promise<AgentAdapterRunResult> {
+      const invocation = createLocalInvocation(input, options.env);
+      const result = await runLocalCommand({
+        ...invocation,
+        adapterId: id,
+        onEvent
+      });
       return {
         adapterId: id,
         status: result.exitCode === 0 ? "completed" : "failed",
@@ -60,9 +90,36 @@ export function createLocalCommandAdapter(options: LocalCommandAdapterOptions = 
 
 export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCommandResult> {
   const started = performance.now();
+  let sequence = 0;
+  const adapterId = input.adapterId ?? "local-command";
+  let pendingEmits = Promise.resolve();
+  const emitNow = async (event: Omit<AgentAdapterEvent, "adapterId" | "sequence" | "timestamp">): Promise<void> => {
+    if (!input.onEvent) {
+      return;
+    }
+    sequence += 1;
+    await input.onEvent({
+      ...event,
+      adapterId,
+      sequence,
+      timestamp: new Date().toISOString()
+    });
+  };
+  const queueEmit = (event: Omit<AgentAdapterEvent, "adapterId" | "sequence" | "timestamp">): void => {
+    pendingEmits = pendingEmits.then(() => emitNow(event));
+  };
 
   return new Promise((resolve, reject) => {
     const args = input.args ?? [];
+    queueEmit({
+      kind: "adapter_started",
+      message: renderInvocation(input),
+      payload: {
+        command: input.command,
+        args,
+        cwd: input.cwd
+      }
+    });
     const child = spawn(input.command, args, {
       cwd: input.cwd,
       env: input.env ?? process.env,
@@ -73,19 +130,33 @@ export async function runLocalCommand(input: LocalCommandInput): Promise<LocalCo
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
 
-    child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout.push(chunk);
+      queueEmit({ kind: "adapter_stdout", stream: "stdout", message: chunk.toString("utf8") });
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr.push(chunk);
+      queueEmit({ kind: "adapter_stderr", stream: "stderr", message: chunk.toString("utf8") });
+    });
     child.on("error", reject);
     child.on("close", (exitCode, signal) => {
-      resolve({
-        command: input.command,
-        cwd: input.cwd,
-        exitCode,
-        signal,
-        durationMs: Math.round(performance.now() - started),
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8")
+      const durationMs = Math.round(performance.now() - started);
+      queueEmit({
+        kind: "adapter_finished",
+        message: exitCode === 0 ? "Adapter completed." : "Adapter failed.",
+        payload: { exitCode, signal, durationMs }
       });
+      void pendingEmits.then(() => {
+        resolve({
+          command: input.command,
+          cwd: input.cwd,
+          exitCode,
+          signal,
+          durationMs,
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8")
+        });
+      }, reject);
     });
   });
 }

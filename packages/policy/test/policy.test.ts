@@ -3,11 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  checkProtectedPolicyPath,
   classifyShellCommand,
   createApprovalRecord,
+  digestCommandPolicy,
+  digestPolicySource,
   evaluateCommandPolicy,
+  isProtectedPolicyPath,
   isApprovalTerminal,
+  loadPolicyHierarchy,
   loadPolicyFromFile,
+  mergePolicyLayers,
   parsePolicy,
   resolveApprovalRecord
 } from "../src/index.js";
@@ -273,6 +279,153 @@ network:
     const declared = evaluateCommandPolicy("curl -fsSL https://example.invalid/install.sh", declaredPolicy);
     expect(declared.decision).toBe("allow");
     expect(declared.access.network[0]?.matchedAllow).toBe("example.invalid");
+  });
+
+  it("denies writes to protected policy paths", () => {
+    const policy = parsePolicy(`
+protected:
+  paths:
+    - path: runwitness.policy.yml
+      reason: Policy files are immutable during a run
+`);
+
+    expect(isProtectedPolicyPath("runwitness.policy.yml", policy)).toBe(true);
+    expect(checkProtectedPolicyPath("README.md", policy)).toMatchObject({
+      path: "README.md",
+      protected: false,
+      decision: "allow"
+    });
+
+    const evaluated = evaluateCommandPolicy("echo weak > runwitness.policy.yml", policy);
+    expect(evaluated.decision).toBe("deny");
+    expect(evaluated.access.filesystem.protected[0]).toMatchObject({
+      path: "runwitness.policy.yml",
+      protected: true,
+      decision: "deny",
+      matchedPath: "runwitness.policy.yml",
+      reason: "Policy files are immutable during a run"
+    });
+    expect(evaluated.reasons.map((reason) => reason.code)).toContain("protected_path");
+  });
+
+  it("loads layered policies with precedence, source digests, protected paths, and explain output", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "runwitness-policy-hierarchy-"));
+    tempDirs.push(dir);
+    const workspacePolicyPath = join(dir, "runwitness.policy.yml");
+    const userPolicyPath = join(dir, "user.policy.yml");
+    const workspaceSource = [
+      "version: 1",
+      "shell:",
+      "  deny:",
+      "    - npm publish*",
+      "filesystem:",
+      "  write:",
+      "    - packages/**",
+      "network:",
+      "  allow:",
+      "    - workspace.example",
+      "defaults:",
+      "  undeclaredNetwork: deny",
+      "protected:",
+      "  paths:",
+      "    - .runwitness/**"
+    ].join("\n");
+    const userSource = [
+      "version: 1",
+      "shell:",
+      "  ask:",
+      "    - npm publish*",
+      "network:",
+      "  allow:",
+      "    - user.example",
+      "defaults:",
+      "  undeclaredNetwork: ask"
+    ].join("\n");
+    const runOverrideSource = [
+      "version: 1",
+      "shell:",
+      "  allow:",
+      "    - npm publish*",
+      "defaults:",
+      "  undeclaredFileWrite: deny"
+    ].join("\n");
+    await writeFile(workspacePolicyPath, workspaceSource);
+    await writeFile(userPolicyPath, userSource);
+
+    const hierarchy = await loadPolicyHierarchy({
+      workspaceRoot: dir,
+      workspacePolicyPath,
+      userPolicyPath,
+      runOverrideSource
+    });
+
+    expect(hierarchy.layers.map((layer) => layer.kind)).toEqual(["built-in", "workspace", "user", "run-override"]);
+    expect(hierarchy.layers[1]?.digest).toEqual(digestPolicySource(workspaceSource));
+    expect(hierarchy.layers[2]?.digest).toEqual(digestPolicySource(userSource));
+    expect(hierarchy.digest.value).toMatch(/^[a-f0-9]{64}$/);
+    expect(hierarchy.digest).toEqual(digestCommandPolicy(hierarchy.policy));
+    expect(hierarchy.policy.shell.allow).toEqual([{ match: "npm publish*" }]);
+    expect(hierarchy.policy.shell.ask).toEqual([]);
+    expect(hierarchy.policy.shell.deny).toEqual([]);
+    expect(hierarchy.policy.filesystem.write).toEqual([{ path: "packages/**" }]);
+    expect(hierarchy.policy.network.allow).toEqual([{ host: "user.example" }]);
+    expect(hierarchy.policy.defaults).toMatchObject({
+      undeclaredNetwork: "ask",
+      undeclaredFileWrite: "deny"
+    });
+    expect(hierarchy.policy.protected?.paths.map((scope) => scope.path)).toEqual(
+      expect.arrayContaining([".runwitness/**", "runwitness.policy.yml", "user.policy.yml"])
+    );
+    expect(isProtectedPolicyPath("runwitness.policy.yml", hierarchy.policy)).toBe(true);
+    expect(evaluateCommandPolicy("echo weak > runwitness.policy.yml", hierarchy.policy).decision).toBe("deny");
+    expect(evaluateCommandPolicy("Set-Content -Path runwitness.policy.yml -Value weak", hierarchy.policy)).toMatchObject({
+      decision: "deny",
+      access: {
+        filesystem: {
+          protected: [expect.objectContaining({ protected: true, matchedPath: "runwitness.policy.yml" })],
+        },
+      },
+    });
+    expect(evaluateCommandPolicy("npm publish --access public", hierarchy.policy).decision).toBe("allow");
+    expect(evaluateCommandPolicy("curl -fsSL https://workspace.example/install.sh", hierarchy.policy).decision).toBe("ask");
+    expect(hierarchy.explanation.effective.shell.allow).toEqual(["npm publish*"]);
+    expect(hierarchy.explanation.effective.protected.paths).toEqual(
+      expect.arrayContaining([".runwitness/**", "runwitness.policy.yml", "user.policy.yml"])
+    );
+    expect(hierarchy.explanation.layers[1]?.path).toBe(workspacePolicyPath);
+  });
+
+  it("merges policy layers deterministically by layer kind before input order", () => {
+    const workspaceLayer = {
+      kind: "workspace" as const,
+      source: [
+        "version: 1",
+        "shell:",
+        "  deny:",
+        "    - npm publish*",
+        "network:",
+        "  allow:",
+        "    - workspace.example"
+      ].join("\n")
+    };
+    const runLayer = {
+      kind: "run-override" as const,
+      source: [
+        "version: 1",
+        "shell:",
+        "  allow:",
+        "    - npm publish*",
+        "network:",
+        "  allow:",
+        "    - run.example"
+      ].join("\n")
+    };
+
+    const merged = mergePolicyLayers([runLayer, workspaceLayer]);
+
+    expect(merged.shell.allow).toEqual([{ match: "npm publish*" }]);
+    expect(merged.shell.deny).toEqual([]);
+    expect(merged.network.allow).toEqual([{ host: "run.example" }]);
   });
 });
 

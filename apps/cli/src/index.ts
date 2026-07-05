@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { inspectSkillManifest } from "@runwitness/skills";
 import { createDefaultAdapterRegistry } from "@runwitness/adapters";
 import { listenOperatorServer, RunLedger, runWitnessedCommand } from "@runwitness/core";
-import { evaluateCommandPolicy, loadPolicyFromFile } from "@runwitness/policy";
+import { evaluateCommandPolicy, loadPolicyHierarchy } from "@runwitness/policy";
 
 export const program = new Command();
 
@@ -20,22 +20,54 @@ program
   .option("--workspace <path>", "workspace to run in", process.cwd())
   .option("--data-dir <path>", "RunWitness data directory")
   .option("--agent <name>", "agent or adapter name", "local-command")
-  .option("--policy <path>", "YAML policy file to evaluate before running")
+  .option("--policy <path>", "run-override YAML policy file to evaluate before running")
+  .option("--workspace-policy <path>", "workspace YAML policy file")
+  .option("--user-policy <path>", "user YAML policy file")
+  .option("--sandbox", "run command in an isolated temporary workspace with filtered environment")
+  .option("--sandbox-temp-root <path>", "parent directory for isolated sandbox workspaces")
+  .option("--write-allow <path...>", "sandbox write allowlist paths relative to the workspace")
+  .option("--protect <path...>", "sandbox protected paths relative to the workspace")
   .option("--yes", "auto-approve policy actions that would otherwise ask")
   .allowExcessArguments(true)
   .argument("<command...>", "command to run")
-  .action(async (commandParts: string[], options: Record<string, string | boolean | undefined>) => {
+  .action(async (commandParts: string[], options: Record<string, unknown>) => {
     const command = formatCommand(commandParts);
-    const policy = options.policy ? await loadPolicyFromFile(String(options.policy)) : undefined;
+    const workspace = String(options.workspace);
+    const hierarchy =
+      options.policy || options.workspacePolicy || options.userPolicy
+        ? await loadPolicyHierarchy({
+            workspaceRoot: workspace,
+            workspacePolicyPath: options.workspacePolicy ? String(options.workspacePolicy) : undefined,
+            userPolicyPath: options.userPolicy ? String(options.userPolicy) : undefined,
+            runOverridePolicyPath: options.policy ? String(options.policy) : undefined
+          })
+        : undefined;
     const result = await runWitnessedCommand({
       task: String(options.task),
       command,
       commandParts,
-      workspace: String(options.workspace),
+      workspace,
       dataDir: options.dataDir ? String(options.dataDir) : undefined,
       agent: options.agent ? String(options.agent) : "local-command",
       yes: options.yes === true,
-      policy
+      policy: hierarchy?.policy,
+      policyMetadata: hierarchy
+        ? {
+            digest: hierarchy.digest,
+            layers: hierarchy.layers,
+            precedence: hierarchy.precedence,
+            protectedSourcePaths: hierarchy.protectedSourcePaths,
+            explanation: hierarchy.explanation
+          }
+        : undefined,
+      sandbox: options.sandbox === true
+        ? {
+            enabled: true,
+            tempRoot: options.sandboxTempRoot ? String(options.sandboxTempRoot) : undefined,
+            allowedWritePaths: toStringList(options.writeAllow),
+            protectedPaths: toStringList(options.protect)
+          }
+        : undefined
     });
 
     console.log(pc.bold("RunWitness receipt generated"));
@@ -51,8 +83,11 @@ const policy = program.command("policy").description("Inspect and evaluate RunWi
 
 policy
   .command("check")
-  .description("Evaluate a shell command against a YAML policy.")
-  .requiredOption("--policy <path>", "YAML policy file")
+  .description("Evaluate a shell command against a YAML policy hierarchy.")
+  .requiredOption("--policy <path>", "run-override YAML policy file")
+  .option("--workspace <path>", "workspace root for protected policy source paths", process.cwd())
+  .option("--workspace-policy <path>", "workspace YAML policy file")
+  .option("--user-policy <path>", "user YAML policy file")
   .allowExcessArguments(true)
   .argument("<command...>", "command to evaluate")
   .action(async (commandParts: string[], options: Record<string, string | undefined>) => {
@@ -60,11 +95,33 @@ policy
     if (!policyFile) {
       throw new Error("Missing required --policy option");
     }
-    const loadedPolicy = await loadPolicyFromFile(policyFile);
+    const hierarchy = await loadPolicyHierarchy({
+      workspaceRoot: options.workspace ?? process.cwd(),
+      workspacePolicyPath: options.workspacePolicy,
+      userPolicyPath: options.userPolicy,
+      runOverridePolicyPath: policyFile
+    });
     const command = formatCommand(commandParts);
-    const evaluation = evaluateCommandPolicy(command, loadedPolicy);
-    printJson(evaluation);
+    const evaluation = evaluateCommandPolicy(command, hierarchy.policy);
+    printJson({ evaluation, policy: hierarchy.explanation });
     process.exitCode = evaluation.decision === "deny" ? 2 : evaluation.decision === "ask" ? 1 : 0;
+  });
+
+policy
+  .command("explain")
+  .description("Print the effective policy hierarchy, precedence, source digests, and protected paths.")
+  .option("--workspace <path>", "workspace root for protected policy source paths", process.cwd())
+  .option("--workspace-policy <path>", "workspace YAML policy file")
+  .option("--user-policy <path>", "user YAML policy file")
+  .option("--policy <path>", "run-override YAML policy file")
+  .action(async (options: Record<string, string | undefined>) => {
+    const hierarchy = await loadPolicyHierarchy({
+      workspaceRoot: options.workspace ?? process.cwd(),
+      workspacePolicyPath: options.workspacePolicy,
+      userPolicyPath: options.userPolicy,
+      runOverridePolicyPath: options.policy
+    });
+    printJson(hierarchy.explanation);
   });
 
 program
@@ -157,13 +214,28 @@ export async function main(): Promise<void> {
 }
 
 function formatCommand(parts: string[]): string {
-  return parts.map((part) => (needsQuoting(part) ? JSON.stringify(part) : part)).join(" ");
+  return parts.map((part) => (isShellOperator(part) || !needsQuoting(part) ? part : JSON.stringify(part))).join(" ");
 }
 
 function needsQuoting(value: string): boolean {
   return value.length === 0 || /[\s"'`|&<>()[\]{};]/.test(value);
 }
 
+function isShellOperator(value: string): boolean {
+  return [">", ">>", "<", "<<", "|", "||", "&&", ";"].includes(value);
+}
+
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+function toStringList(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const list = value.map(String).filter((item) => item.length > 0);
+    return list.length > 0 ? list : undefined;
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return [value];
+  }
+  return undefined;
 }

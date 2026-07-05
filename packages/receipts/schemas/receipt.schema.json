@@ -108,6 +108,9 @@
         "$ref": "#/$defs/artifactRecord"
       }
     },
+    "policy": {
+      "$ref": "#/$defs/policyLineage"
+    },
     "fileTracking": {
       "type": "object",
       "additionalProperties": false,
@@ -243,6 +246,98 @@
         "bytes": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "policyLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["precedence", "layers", "protectedSourcePaths"],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/policyDigest"
+        },
+        "precedence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/policyLayer"
+          }
+        },
+        "protectedSourcePaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/protectedPolicyPath"
+          }
+        }
+      }
+    },
+    "policyLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "protectedPaths"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "precedence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/policyDigest"
+        },
+        "sourceLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "protectedPaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/protectedPolicyPath"
+          }
+        }
+      }
+    },
+    "policyDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      }
+    },
+    "protectedPolicyPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
         }
       }
     },

@@ -17,6 +17,7 @@ export function createOpenClawAdapter(config: OpenClawAdapterConfig = {}): Comma
     commandFlag: config.commandFlag ?? "--command",
     extraArgs: config.extraArgs,
     env: config.env,
+    structuredEvents: config.structuredEvents ?? true,
     capabilities: config.capabilities
   });
 }

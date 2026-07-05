@@ -17,6 +17,7 @@ export function createHermesAdapter(config: HermesAdapterConfig = {}): CommandAg
     commandFlag: config.commandFlag ?? "--command",
     extraArgs: config.extraArgs,
     env: config.env,
+    structuredEvents: config.structuredEvents ?? true,
     capabilities: config.capabilities
   });
 }

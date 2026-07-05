@@ -2,7 +2,16 @@ import path from "node:path";
 import { isLikelyTestCommand, runLocalCommand } from "@runwitness/adapters";
 import { classifyShellCommand, createApprovalRecord, evaluateCommandPolicy, type CommandPolicy } from "@runwitness/policy";
 import { buildReceipt, writeProofBundle } from "@runwitness/receipts";
-import { DEFAULT_IGNORED_NAMES, diffSnapshots, snapshotWorkspace } from "@runwitness/sandbox";
+import {
+  buildFilteredEnvironment,
+  createIsolatedTempWorkspace,
+  DEFAULT_IGNORED_NAMES,
+  diffSnapshots,
+  preflightCommandWrites,
+  snapshotWorkspace,
+  type FilteredEnvironmentOptions,
+  type IsolatedTempWorkspace
+} from "@runwitness/sandbox";
 import { createStepId } from "./ids.js";
 import { RunLedger } from "./ledger.js";
 import type { RunRecord } from "./types.js";
@@ -17,6 +26,16 @@ export interface WitnessedCommandOptions {
   yes?: boolean;
   receiptDir?: string;
   policy?: CommandPolicy;
+  policyMetadata?: Record<string, unknown>;
+  sandbox?: WitnessedSandboxOptions;
+}
+
+export interface WitnessedSandboxOptions {
+  enabled?: boolean;
+  tempRoot?: string;
+  allowedWritePaths?: string[];
+  protectedPaths?: string[];
+  environment?: FilteredEnvironmentOptions;
 }
 
 export interface WitnessedCommandResult {
@@ -33,6 +52,7 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
   const dbPath = path.join(dataDir, "runwitness.sqlite");
   const receiptDir = path.resolve(options.receiptDir ?? path.join(dataDir, "receipts"));
   const ledger = await RunLedger.open(dbPath);
+  let isolatedWorkspace: IsolatedTempWorkspace | undefined;
 
   let run: RunRecord | undefined;
   try {
@@ -41,6 +61,10 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
       agent: options.agent ?? "local-command",
       workspace
     });
+
+    if (options.policyMetadata) {
+      await ledger.appendEvent(run.id, "policy_loaded", options.policyMetadata);
+    }
 
     const risk = classifyShellCommand(options.command);
     const policyEvaluation = options.policy ? evaluateCommandPolicy(options.command, options.policy) : undefined;
@@ -55,7 +79,8 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
         reasons: riskReasons,
         riskLevel,
         policyDecision: decision,
-        policyEvaluation
+        policyEvaluation,
+        policy: options.policyMetadata
       });
 
       const approved = decision === "ask" && options.yes;
@@ -92,14 +117,95 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
       }
     }
 
-    const before = await snapshotWorkspace(workspace);
+    const sandboxEnabled = options.sandbox?.enabled === true;
+    const writePreflight = preflightCommandWrites(options.command, {
+      workspaceRoot: workspace,
+      allowedWritePaths: options.sandbox?.allowedWritePaths,
+      protectedPaths: options.sandbox?.protectedPaths
+    });
+    await ledger.appendEvent(run.id, "sandbox_preflight", {
+      enabled: sandboxEnabled,
+      allowed: writePreflight.allowed,
+      detectedWrites: writePreflight.detectedWrites.map((write) => ({
+        path: write.path,
+        intent: write.intent,
+        command: write.command,
+        allowed: write.check.allowed,
+        reason: write.check.reason,
+        code: write.check.code
+      })),
+      warnings: writePreflight.warnings
+    });
+
+    if (sandboxEnabled && !writePreflight.allowed) {
+      await ledger.appendEvent(run.id, "approval_requested", {
+        action: options.command,
+        reasons: writePreflight.violations.map((write) => write.check.reason ?? `Write blocked: ${write.path}`),
+        riskLevel: "high",
+        policyDecision: "deny",
+        sandbox: { violations: writePreflight.violations }
+      });
+      const blockedRun = await ledger.finishRun(run.id, "blocked");
+      const receipt = buildReceipt(blockedRun, ledger.timeline(run.id));
+      const bundle = await writeProofBundle(receipt, receiptDir);
+      await ledger.appendEvent(run.id, "receipt_exported", {
+        jsonPath: bundle.jsonPath,
+        markdownPath: bundle.markdownPath
+      });
+      const finalReceipt = buildReceipt(blockedRun, ledger.timeline(run.id));
+      await writeProofBundle(finalReceipt, receiptDir);
+      return {
+        run: blockedRun,
+        exitCode: null,
+        receiptJsonPath: bundle.jsonPath,
+        receiptMarkdownPath: bundle.markdownPath,
+        dbPath
+      };
+    }
+
+    const filteredEnvironment = buildFilteredEnvironment(options.sandbox?.environment);
+    await ledger.appendEvent(run.id, "sandbox_environment", {
+      enabled: sandboxEnabled,
+      removedKeys: filteredEnvironment.removedKeys,
+      removedPathEntries: filteredEnvironment.removedPathEntries,
+      pathKey: filteredEnvironment.pathKey
+    });
+
+    const executionWorkspace = sandboxEnabled
+      ? await createIsolatedTempWorkspace({
+          sourceWorkspace: workspace,
+          tempRoot: options.sandbox?.tempRoot,
+          environment: {
+            ...options.sandbox?.environment,
+            extraEnv: {
+              ...options.sandbox?.environment?.extraEnv,
+              RUNWITNESS_SOURCE_WORKSPACE: workspace
+            }
+          }
+        })
+      : undefined;
+    isolatedWorkspace = executionWorkspace;
+    const commandWorkspace = executionWorkspace?.workspaceRoot ?? workspace;
+    const commandEnvironment = executionWorkspace?.environment.env ?? filteredEnvironment.env;
+
+    if (executionWorkspace) {
+      await ledger.appendEvent(run.id, "sandbox_workspace_created", {
+        sourceWorkspace: workspace,
+        sandboxWorkspace: executionWorkspace.workspaceRoot,
+        tempRoot: executionWorkspace.tempRoot,
+        ignoredNames: executionWorkspace.ignoredNames
+      });
+    }
+
+    const before = await snapshotWorkspace(commandWorkspace);
     const stepId = createStepId("cmd");
-    await ledger.appendEvent(run.id, "command_started", { command: options.command, cwd: workspace }, stepId);
+    await ledger.appendEvent(run.id, "command_started", { command: options.command, cwd: commandWorkspace }, stepId);
     const [executable, ...args] = options.commandParts ?? [];
     const commandResult = await runLocalCommand({
       command: executable ?? options.command,
       args: executable ? args : undefined,
-      cwd: workspace
+      cwd: commandWorkspace,
+      env: commandEnvironment
     });
     await ledger.appendEvent(
       run.id,
@@ -111,12 +217,14 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
         signal: commandResult.signal,
         durationMs: commandResult.durationMs,
         stdout: truncate(commandResult.stdout),
-        stderr: truncate(commandResult.stderr)
+        stderr: truncate(commandResult.stderr),
+        sandboxed: sandboxEnabled,
+        sourceWorkspace: workspace
       },
       stepId
     );
 
-    const after = await snapshotWorkspace(workspace);
+    const after = await snapshotWorkspace(commandWorkspace);
     const changes = diffSnapshots(before, after);
     await ledger.appendEvent(run.id, "file_changes", {
       changes,
@@ -156,6 +264,7 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
     }
     throw error;
   } finally {
+    await isolatedWorkspace?.cleanup();
     ledger.close();
   }
 }

@@ -42,9 +42,9 @@ Receipts should answer:
 
 ## Policy
 
-A Policy determines whether an action is allowed, denied, or approval-required. The current foundation includes shell-command risk classification, YAML policy loading, shell allow/ask/deny overrides, and command-text checks for declared filesystem and network scopes.
+A Policy determines whether an action is allowed, denied, or approval-required. The current foundation includes shell-command risk classification, YAML policy loading, shell allow/ask/deny overrides, command-text checks for declared filesystem and network scopes, protected path checks, policy hierarchy loading, source/effective-policy digests, and explain output.
 
-Policy files are explicit, versioned, and explainable. Future hardening should add protected policy storage, workspace/user/run precedence, policy digests in ledger events, secret policy, adapter policy, skill policy, and enforcement that goes beyond command-text analysis.
+Policy files are explicit, versioned, and explainable. The policy package can merge built-in, workspace, user, and run-override layers, and the CLI can carry that lineage into run events and receipts. Future hardening should add signed policy bundles, richer cockpit policy views, broader secret/adapter/skill policy integration, and controls beyond command-text analysis.
 
 ## Skill
 
@@ -58,7 +58,9 @@ A Skill is a reusable capability. In RunWitness, skills must become declarative 
 - author
 - optional signature metadata
 
-The current code parses manifests, canonicalizes them, computes a digest, summarizes permission risk, and verifies optional Ed25519 signatures. Trust registry checks, install quarantine, and runtime permission enforcement are future hardening work.
+The current code parses manifests, canonicalizes them, computes a digest, summarizes permission risk, verifies optional Ed25519 signatures, checks a local trust registry, assesses install versus quarantine, and checks runtime shell, filesystem, network, and named-secret actions against declared permissions.
+
+Those checks are primitives. A complete signed-skill execution broker that forces every skill action through the checks is future hardening work.
 
 ## Approval
 
@@ -73,6 +75,24 @@ An Approval is a recorded decision for a risky action. It is not a vague memory.
 
 ## Adapter
 
-An Adapter connects RunWitness to something that can do work. The current adapter registry includes `local-command` plus OpenClaw and Hermes command-wrapper foundations that require configured external tools. Future native adapters can supervise Codex, Claude Code, MCP servers, CI jobs, browser automation, and deployment systems.
+An Adapter connects RunWitness to something that can do work. The current adapter registry includes streamed `local-command` plus OpenClaw and Hermes command-wrapper foundations that require configured external tools.
 
-Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness should mark that portion of the run as opaque rather than implying full observability.
+Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness marks that portion of the run as opaque rather than implying full observability. Future native adapters can supervise Codex, Claude Code, MCP servers, CI jobs, browser automation, and deployment systems.
+
+## Sandbox
+
+The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, and rollback bundle primitives.
+
+Commands still run as host processes. Network access is not blocked, nested process tracing is incomplete, and rollback bundles are not the same as guaranteed automatic rollback.
+
+## Operator
+
+An Operator is a human or service principal inspecting runs and deciding approvals. The local operator API can list runs, timelines, receipts, and pending approvals. It can optionally require bearer tokens with viewer, approver, or admin roles and user/workspace scopes.
+
+The live cockpit renderer can poll the API, subscribe to event snapshots, and post approval decisions. It is still a local cockpit foundation rather than a complete hosted multi-user control plane.
+
+## Identity And Secrets
+
+The identity primitives model users, workspace roles, workspace grants, secret grants, and access decisions. They are currently in-memory building blocks for checking whether a user can read, write, or administer a workspace or named secret.
+
+The local secret broker stores local in-memory secret values, returns redacted descriptors, checks identity grants before describe/read/write/delete actions, and emits redacted audit events plus receipt-shaped records. It is not yet a durable encrypted vault or a universal runtime credential boundary.

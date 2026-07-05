@@ -67,6 +67,51 @@ describe("runWitnessedCommand", () => {
     expect(result.run.status).toBe("blocked");
     expect(await exists(result.receiptJsonPath)).toBe(true);
   });
+
+  it("runs sandboxed commands in an isolated workspace with filtered environment", async () => {
+    await fs.writeFile(path.join(root, "source.txt"), "source", "utf8");
+    const sandboxTempRoot = path.join(root, "tmp");
+
+    const result = await runWitnessedCommand({
+      task: "Sandbox write",
+      command: "node -e \"require('node:fs').writeFileSync('created-in-sandbox.txt', process.env.SECRET_TOKEN || 'filtered')\"",
+      commandParts: [
+        "node",
+        "-e",
+        "require('node:fs').writeFileSync('created-in-sandbox.txt', process.env.SECRET_TOKEN || 'filtered')"
+      ],
+      workspace: root,
+      sandbox: {
+        enabled: true,
+        tempRoot: sandboxTempRoot,
+        environment: {
+          baseEnv: {
+            Path: process.env.Path ?? process.env.PATH,
+            SECRET_TOKEN: "should-not-leak"
+          }
+        }
+      }
+    });
+
+    expect(result.run.status).toBe("completed");
+    expect(await exists(path.join(root, "created-in-sandbox.txt"))).toBe(false);
+
+    const receipt = JSON.parse(await fs.readFile(result.receiptJsonPath, "utf8")) as {
+      files: Array<{ path: string; action: string }>;
+    };
+    expect(receipt.files).toContainEqual(expect.objectContaining({ path: "created-in-sandbox.txt", action: "created" }));
+
+    const ledger = await RunLedger.open(result.dbPath);
+    try {
+      const events = ledger.timeline(result.run.id);
+      expect(events.map((event) => event.kind)).toEqual(
+        expect.arrayContaining(["sandbox_preflight", "sandbox_environment", "sandbox_workspace_created"])
+      );
+      expect(events.find((event) => event.kind === "sandbox_environment")?.payload.removedKeys).toContain("SECRET_TOKEN");
+    } finally {
+      ledger.close();
+    }
+  });
 });
 
 async function exists(filePath: string): Promise<boolean> {

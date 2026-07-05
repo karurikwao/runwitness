@@ -312,6 +312,29 @@ body {
   font-size: 0.82rem;
 }
 
+.rw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rw-actions button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #c9d1de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d252f;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rw-actions button:hover {
+  border-color: #8ea5c4;
+  background: #f0f6ff;
+}
+
 .rw-timeline {
   display: grid;
 }

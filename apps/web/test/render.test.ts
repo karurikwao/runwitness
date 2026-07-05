@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createCockpitViewModel,
+  renderLiveWebCockpitDocument,
   renderWebCockpitBody,
   renderWebCockpitDocument,
   webAppStatus,
@@ -78,5 +79,22 @@ describe("web cockpit renderer", () => {
       status: "static-cockpit-foundation",
       renderer: "static-html",
     });
+  });
+
+  it("renders a live cockpit shell with API polling and approval actions", () => {
+    const html = renderLiveWebCockpitDocument({
+      live: {
+        apiBase: "http://127.0.0.1:8787",
+        authTokenStorageKey: "rw.token",
+        pollIntervalMs: 1000,
+      },
+    });
+
+    expect(html).toContain("rw.token");
+    expect(html).toContain("/approvals/pending");
+    expect(html).toContain("data-approval-run");
+    expect(html).toContain("EventSource");
+    expect(html).toContain("new URL(apiBase, window.location.href)");
+    expect(html).not.toContain("new URL(path.replace(/^\\\\//, \"\"), apiBase, window.location.href)");
   });
 });

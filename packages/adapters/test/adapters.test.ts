@@ -4,11 +4,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AgentAdapterRegistry,
+  createCommandAgentAdapter,
   createDefaultAdapterRegistry,
   createHermesAdapter,
   createLocalCommandAdapter,
   createOpenClawAdapter
 } from "../src/index.js";
+import type { AgentAdapterEvent } from "../src/index.js";
 
 let root: string;
 
@@ -70,6 +72,51 @@ describe("local command adapter", () => {
       })
     ).rejects.toThrow(/requires command or commandParts/);
   });
+
+  it("streams local command lifecycle and output events", async () => {
+    const adapter = createLocalCommandAdapter();
+    const events: AgentAdapterEvent[] = [];
+
+    const result = await adapter.runStream?.(
+      {
+        task: "Stream output",
+        workspace: root,
+        commandParts: [process.execPath, "-e", "console.log('stream-ok'); console.error('stream-warn')"]
+      },
+      (event) => {
+        events.push(event);
+      }
+    );
+
+    expect(result?.status).toBe("completed");
+    expect(events.map((event) => event.kind)).toEqual(
+      expect.arrayContaining(["adapter_started", "adapter_stdout", "adapter_stderr", "adapter_finished"])
+    );
+    expect(events.find((event) => event.kind === "adapter_stdout")?.message).toContain("stream-ok");
+    expect(events.find((event) => event.kind === "adapter_stderr")?.message).toContain("stream-warn");
+  });
+
+  it("waits for async stream handlers before resolving", async () => {
+    const adapter = createLocalCommandAdapter();
+    const handled: string[] = [];
+
+    await adapter.runStream?.(
+      {
+        task: "Async stream handler",
+        workspace: root,
+        commandParts: [process.execPath, "-e", "console.log('async-out'); console.error('async-err')"]
+      },
+      async (event) => {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        handled.push(event.kind);
+      }
+    );
+
+    expect(handled).toEqual(
+      expect.arrayContaining(["adapter_started", "adapter_stdout", "adapter_stderr", "adapter_finished"])
+    );
+    expect(handled.at(-1)).toBe("adapter_finished");
+  });
 });
 
 describe("OpenClaw and Hermes command adapters", () => {
@@ -107,5 +154,66 @@ describe("OpenClaw and Hermes command adapters", () => {
       "openclaw",
       "hermes"
     ]);
+  });
+
+  it("marks command-wrapper adapters as opaque while streaming output", async () => {
+    const adapter = createCommandAgentAdapter({
+      id: "wrapper-test",
+      name: "Wrapper Test",
+      executable: process.execPath,
+      baseArgs: ["-e", "console.log('wrapper-ok')"],
+      workspaceFlag: false,
+      taskFlag: false,
+      commandFlag: false
+    });
+    const events: AgentAdapterEvent[] = [];
+
+    const result = await adapter.runStream(
+      {
+        task: "Wrapper stream",
+        workspace: root
+      },
+      (event) => {
+        events.push(event);
+      }
+    );
+
+    expect(result.status).toBe("completed");
+    expect(events[0]).toMatchObject({ kind: "adapter_opaque_action", adapterId: "wrapper-test" });
+    expect(events.find((event) => event.kind === "adapter_stdout")?.message).toContain("wrapper-ok");
+  });
+
+  it("normalizes structured JSONL events emitted by OpenClaw and Hermes wrappers", async () => {
+    const script = [
+      "console.log(JSON.stringify({type:'artifact', path:'reports/openclaw.json', label:'OpenClaw report'}));",
+      "console.log('data: ' + JSON.stringify({event:'tool_call', message:'Hermes delegated'}));"
+    ].join("");
+    const adapter = createOpenClawAdapter({
+      executable: process.execPath,
+      baseArgs: ["-e", script],
+      workspaceFlag: false,
+      taskFlag: false,
+      commandFlag: false
+    });
+    const events: AgentAdapterEvent[] = [];
+
+    const result = await adapter.runStream?.(
+      {
+        task: "Structured adapter stream",
+        workspace: root
+      },
+      (event) => {
+        events.push(event);
+      }
+    );
+
+    expect(result?.status).toBe("completed");
+    expect(events.find((event) => event.kind === "adapter_artifact")).toMatchObject({
+      artifact: {
+        uri: "reports/openclaw.json",
+        label: "OpenClaw report"
+      }
+    });
+    expect(events.find((event) => event.kind === "adapter_opaque_action" && event.message === "Hermes delegated")).toBeDefined();
   });
 });

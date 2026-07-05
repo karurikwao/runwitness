@@ -5,4 +5,5 @@ export * from "./invocation.js";
 export * from "./local-command.js";
 export * from "./openclaw.js";
 export * from "./registry.js";
+export * from "./structured-events.js";
 export * from "./types.js";

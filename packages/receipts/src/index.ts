@@ -53,6 +53,34 @@ export interface ReceiptArtifact {
   bytes?: number;
 }
 
+export interface ReceiptPolicyDigest {
+  algorithm: string;
+  value: string;
+}
+
+export interface ReceiptPolicyLayer {
+  kind: string;
+  label?: string;
+  precedence?: number;
+  path?: string;
+  digest?: ReceiptPolicyDigest;
+  sourceLength?: number;
+  protectedPaths: Array<{
+    path: string;
+    reason?: string;
+  }>;
+}
+
+export interface ReceiptPolicyLineage {
+  digest?: ReceiptPolicyDigest;
+  precedence: string[];
+  layers: ReceiptPolicyLayer[];
+  protectedSourcePaths: Array<{
+    path: string;
+    reason?: string;
+  }>;
+}
+
 export interface RunReceipt {
   schemaVersion: typeof RECEIPT_SCHEMA_VERSION;
   runId: string;
@@ -74,6 +102,7 @@ export interface RunReceipt {
   tests: ReceiptTestRecord[];
   approvals: ReceiptApprovalRecord[];
   artifacts: ReceiptArtifact[];
+  policy?: ReceiptPolicyLineage;
   fileTracking: {
     ignoredNames: string[];
   };
@@ -93,8 +122,13 @@ export function buildReceipt(run: RunRecord, events: RunEvent[]): RunReceipt {
   const tests: ReceiptTestRecord[] = [];
   const approvals: ReceiptApprovalRecord[] = [];
   const ignoredNames = new Set<string>();
+  let policy: ReceiptPolicyLineage | undefined;
 
   for (const event of events) {
+    if (event.kind === "policy_loaded") {
+      policy = extractPolicyLineage(event.payload);
+    }
+
     if (event.kind === "file_changes") {
       const changes = Array.isArray(event.payload.changes) ? (event.payload.changes as FileChange[]) : [];
       const eventIgnoredNames = Array.isArray(event.payload.ignoredNames)
@@ -176,6 +210,7 @@ export function buildReceipt(run: RunRecord, events: RunEvent[]): RunReceipt {
     tests,
     approvals,
     artifacts: [],
+    ...(policy ? { policy } : {}),
     fileTracking: {
       ignoredNames: [...ignoredNames].sort((left, right) => left.localeCompare(right))
     },
@@ -231,6 +266,24 @@ export function renderReceiptMarkdown(receipt: RunReceipt): string {
     summaryRow("Tests", receipt.summary.tests),
     summaryRow("Approvals", receipt.summary.approvals),
     "",
+    ...(receipt.policy
+      ? [
+          "## Policy",
+          "",
+          `Effective digest: ${receipt.policy.digest?.value ?? "unknown"}`,
+          `Precedence: ${receipt.policy.precedence.join(" -> ") || "none"}`,
+          "",
+          table(
+            ["Layer", "Digest", "Path"],
+            receipt.policy.layers.map((layer) => [
+              layer.kind,
+              layer.digest?.value ?? "",
+              layer.path ?? layer.label ?? ""
+            ])
+          ),
+          "",
+        ]
+      : []),
     "## Commands",
     "",
     table(
@@ -275,6 +328,59 @@ export function renderReceiptMarkdown(receipt: RunReceipt): string {
 export async function sha256File(filePath: string): Promise<string> {
   const bytes = await fs.readFile(filePath);
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function extractPolicyLineage(payload: Record<string, unknown>): ReceiptPolicyLineage {
+  return {
+    digest: readDigest(payload.digest),
+    precedence: readStringArray(payload.precedence),
+    layers: readRecordArray(payload.layers).map(readPolicyLayer),
+    protectedSourcePaths: readProtectedPaths(payload.protectedSourcePaths),
+  };
+}
+
+function readPolicyLayer(value: Record<string, unknown>): ReceiptPolicyLayer {
+  return {
+    kind: typeof value.kind === "string" ? value.kind : "unknown",
+    label: typeof value.label === "string" ? value.label : undefined,
+    precedence: typeof value.precedence === "number" ? value.precedence : undefined,
+    path: typeof value.path === "string" ? value.path : undefined,
+    digest: readDigest(value.digest),
+    sourceLength: typeof value.sourceLength === "number" ? value.sourceLength : undefined,
+    protectedPaths: readProtectedPaths(value.protectedPaths),
+  };
+}
+
+function readDigest(value: unknown): ReceiptPolicyDigest | undefined {
+  if (!isRecord(value) || typeof value.algorithm !== "string" || typeof value.value !== "string") {
+    return undefined;
+  }
+
+  return {
+    algorithm: value.algorithm,
+    value: value.value,
+  };
+}
+
+function readProtectedPaths(value: unknown): Array<{ path: string; reason?: string }> {
+  return readRecordArray(value)
+    .map((entry) => ({
+      path: typeof entry.path === "string" ? entry.path : "",
+      reason: typeof entry.reason === "string" ? entry.reason : undefined,
+    }))
+    .filter((entry) => entry.path.length > 0);
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter((entry) => entry.length > 0) : [];
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function countBy<T extends object>(items: T[], field: keyof T, knownValues: string[]): CountSummary {

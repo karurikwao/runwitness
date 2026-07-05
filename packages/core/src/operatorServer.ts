@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import http, { type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
@@ -9,6 +10,26 @@ const DEFAULT_RUN_LIMIT = 50;
 const RUN_STATUSES = new Set<RunStatus>(["running", "completed", "failed", "blocked"]);
 
 export type OperatorApprovalDecision = "allow" | "deny";
+export type OperatorRole = "viewer" | "approver" | "admin";
+
+export interface OperatorBearerCredential {
+  token: string;
+  operatorId?: string;
+  roles?: readonly OperatorRole[];
+  allowedUsers?: readonly string[];
+  allowedWorkspaces?: readonly string[];
+}
+
+export interface OperatorAuthOptions {
+  bearerTokens: readonly (string | OperatorBearerCredential)[];
+}
+
+export interface OperatorPrincipal {
+  id: string;
+  roles: OperatorRole[];
+  allowedUsers?: string[];
+  allowedWorkspaces?: string[];
+}
 
 export interface PendingApprovalRequest {
   runId: string;
@@ -26,6 +47,7 @@ export interface PendingApprovalRequest {
 export interface OperatorServerOptions {
   ledger: RunLedger;
   operatorId?: string;
+  auth?: OperatorAuthOptions;
   maxBodyBytes?: number;
 }
 
@@ -87,11 +109,11 @@ export async function listenOperatorServer(options: ListenOperatorServerOptions)
 
 export function listPendingApprovals(
   ledger: RunLedger,
-  options: { runId?: string; limit?: number } = {}
+  options: { runId?: string; limit?: number; user?: string; workspace?: string; principal?: OperatorPrincipal } = {}
 ): PendingApprovalRequest[] {
   const runs =
     options.runId === undefined
-      ? ledger.listRuns({ limit: options.limit ?? 1000 })
+      ? ledger.listRuns({ limit: options.limit ?? 1000, workspace: options.workspace })
       : [ledger.getRun(options.runId)].filter((run): run is RunRecord => run !== undefined);
   const pending: PendingApprovalRequest[] = [];
 
@@ -99,6 +121,9 @@ export function listPendingApprovals(
     const events = ledger.timeline(run.id);
     for (const event of events) {
       if (event.kind !== "approval_requested" || hasTerminalApproval(events, event)) {
+        continue;
+      }
+      if (!approvalMatchesFilters(run, event, options)) {
         continue;
       }
 
@@ -135,12 +160,16 @@ async function handleOperatorRequest(
 ): Promise<void> {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Cache-Control", "no-store");
+  const auth = normalizeAuthOptions(options);
+  if (auth) {
+    response.setHeader("Vary", "Authorization");
+  }
 
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
       Allow: "GET, POST, OPTIONS",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Authorization, Content-Type"
     });
     response.end();
     return;
@@ -155,13 +184,27 @@ async function handleOperatorRequest(
     return;
   }
 
+  const principal = auth ? authenticateOperatorRequest(request, url, auth) : undefined;
+
+  if (method === "GET" && segments.length === 1 && segments[0] === "events") {
+    streamOperatorEvents(options, principal, request, response);
+    return;
+  }
+
   if (segments[0] === "runs") {
-    await handleRunsRoute(options, method, segments, url, request, response);
+    await handleRunsRoute(options, principal, method, segments, url, request, response);
     return;
   }
 
   if (method === "GET" && segments.length === 2 && segments[0] === "approvals" && segments[1] === "pending") {
-    sendJson(response, 200, { approvals: listPendingApprovals(options.ledger) });
+    sendJson(response, 200, {
+      approvals: listPendingApprovals(options.ledger, {
+        user: userFilterFromUrl(url),
+        workspace: optionalSearchParam(url, "workspace"),
+        limit: parseIntegerParam(url.searchParams.get("limit"), 1000),
+        principal
+      })
+    });
     return;
   }
 
@@ -170,6 +213,7 @@ async function handleOperatorRequest(
 
 async function handleRunsRoute(
   options: OperatorServerOptions,
+  principal: OperatorPrincipal | undefined,
   method: string,
   segments: string[],
   url: URL,
@@ -180,14 +224,18 @@ async function handleRunsRoute(
     const status = parseRunStatus(url.searchParams.get("status"));
     const limit = parseIntegerParam(url.searchParams.get("limit"), DEFAULT_RUN_LIMIT);
     const offset = parseIntegerParam(url.searchParams.get("offset"), 0);
+    const user = userFilterFromUrl(url);
+    const runs = options.ledger.listRuns({
+      status,
+      agent: optionalSearchParam(url, "agent"),
+      workspace: optionalSearchParam(url, "workspace")
+    });
     sendJson(response, 200, {
-      runs: options.ledger.listRuns({
-        status,
-        agent: optionalSearchParam(url, "agent"),
-        workspace: optionalSearchParam(url, "workspace"),
-        limit,
-        offset
-      })
+      runs: paginateRuns(
+        runs.filter((run) => runMatchesFilters(run, { user, principal })),
+        offset,
+        limit
+      )
     });
     return;
   }
@@ -202,12 +250,19 @@ async function handleRunsRoute(
     throw new HttpError(404, "Run not found");
   }
 
+  const resource = segments[2];
+  if (resource === "approvals" && segments.length === 3) {
+    await handleRunApprovalsRoute(options, principal, method, runId, url, request, response);
+    return;
+  }
+
+  requireRunAccess(run, principal);
+
   if (method === "GET" && segments.length === 2) {
     sendJson(response, 200, { run });
     return;
   }
 
-  const resource = segments[2];
   if (method === "GET" && segments.length === 3 && resource === "timeline") {
     sendJson(response, 200, { events: options.ledger.timeline(runId) });
     return;
@@ -225,11 +280,6 @@ async function handleRunsRoute(
 
   if (method === "GET" && segments.length === 3 && resource === "receipt") {
     await handleReceiptArtifactRoute(options, runId, url, response);
-    return;
-  }
-
-  if (resource === "approvals" && segments.length === 3) {
-    await handleRunApprovalsRoute(options, method, runId, request, response);
     return;
   }
 
@@ -298,19 +348,29 @@ async function handleReceiptArtifactRoute(
 
 async function handleRunApprovalsRoute(
   options: OperatorServerOptions,
+  principal: OperatorPrincipal | undefined,
   method: string,
   runId: string,
+  url: URL,
   request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
   if (method === "GET") {
-    sendJson(response, 200, { approvals: listPendingApprovals(options.ledger, { runId }) });
+    sendJson(response, 200, {
+      approvals: listPendingApprovals(options.ledger, {
+        runId,
+        user: userFilterFromUrl(url),
+        workspace: optionalSearchParam(url, "workspace"),
+        principal
+      })
+    });
     return;
   }
 
   if (method !== "POST") {
     throw new HttpError(405, "Method not allowed");
   }
+  requireApprovalWriteAccess(principal);
 
   const body = await readJsonBody(request, options.maxBodyBytes ?? DEFAULT_BODY_LIMIT_BYTES);
   if (!isRecord(body)) {
@@ -318,13 +378,18 @@ async function handleRunApprovalsRoute(
   }
 
   const decision = parseApprovalDecision(body.decision);
-  const pending = listPendingApprovals(options.ledger, { runId }).at(-1);
+  const pending = listPendingApprovals(options.ledger, { runId, principal }).at(-1);
+  if (principal && !pending) {
+    throw new HttpError(404, "Pending approval not found");
+  }
   const action = optionalString(body.action) ?? pending?.action;
   if (!action) {
     throw new HttpError(400, "Approval action is required");
   }
+  validateRequestedActor(body.decidedBy, principal);
 
   const decidedAt = new Date().toISOString();
+  const decidedBy = principal ? actorFromPrincipal(principal) : parseActor(body.decidedBy, options.operatorId);
   const event = await options.ledger.appendEvent(
     runId,
     "approval_recorded",
@@ -333,7 +398,8 @@ async function handleRunApprovalsRoute(
       decision,
       rationale: optionalString(body.rationale),
       decidedAt,
-      decidedBy: parseActor(body.decidedBy, options.operatorId),
+      decidedBy,
+      operator: principal ? principalToPayload(principal) : undefined,
       requestSequence: pending?.sequence,
       source: "operator_server"
     },
@@ -343,10 +409,170 @@ async function handleRunApprovalsRoute(
   sendJson(response, 201, { approval: event });
 }
 
+function normalizeAuthOptions(options: OperatorServerOptions): NormalizedAuthOptions | undefined {
+  if (!options.auth) {
+    return undefined;
+  }
+
+  return {
+    bearerTokens: options.auth.bearerTokens.map((credential) => normalizeBearerCredential(credential, options.operatorId))
+  };
+}
+
+function normalizeBearerCredential(
+  credential: string | OperatorBearerCredential,
+  fallbackOperatorId: string | undefined
+): NormalizedBearerCredential {
+  if (typeof credential === "string") {
+    return {
+      token: credential,
+      principal: {
+        id: fallbackOperatorId ?? "operator",
+        roles: ["approver"]
+      }
+    };
+  }
+
+  return {
+    token: credential.token,
+    principal: {
+      id: credential.operatorId ?? fallbackOperatorId ?? "operator",
+      roles: credential.roles === undefined || credential.roles.length === 0 ? ["approver"] : [...credential.roles],
+      allowedUsers: normalizeStringList(credential.allowedUsers),
+      allowedWorkspaces: normalizeStringList(credential.allowedWorkspaces)
+    }
+  };
+}
+
+function authenticateOperatorRequest(request: IncomingMessage, url: URL, auth: NormalizedAuthOptions): OperatorPrincipal {
+  const header = request.headers.authorization;
+  const match = typeof header === "string" ? /^Bearer\s+(.+)$/i.exec(header.trim()) : null;
+  const token = match?.[1] ?? url.searchParams.get("token") ?? url.searchParams.get("access_token");
+  if (!token) {
+    throw new HttpError(401, "Bearer token required", { "WWW-Authenticate": "Bearer" });
+  }
+
+  const principal = findPrincipalForToken(auth, token);
+  if (!principal) {
+    throw new HttpError(401, "Invalid bearer token", { "WWW-Authenticate": "Bearer" });
+  }
+
+  return principal;
+}
+
+function streamOperatorEvents(
+  options: OperatorServerOptions,
+  principal: OperatorPrincipal | undefined,
+  request: IncomingMessage,
+  response: ServerResponse
+): void {
+  response.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-store",
+    Connection: "keep-alive"
+  });
+
+  let lastFingerprint = "";
+  const writeSnapshot = () => {
+    const snapshot = createOperatorSnapshot(options.ledger, principal);
+    const fingerprint = JSON.stringify(snapshot);
+    if (fingerprint === lastFingerprint) {
+      response.write(`: heartbeat ${new Date().toISOString()}\n\n`);
+      return;
+    }
+
+    lastFingerprint = fingerprint;
+    response.write(`event: snapshot\n`);
+    response.write(`data: ${fingerprint}\n\n`);
+  };
+
+  writeSnapshot();
+  const interval = setInterval(writeSnapshot, 2000);
+  request.on("close", () => {
+    clearInterval(interval);
+  });
+}
+
+function createOperatorSnapshot(ledger: RunLedger, principal: OperatorPrincipal | undefined): Record<string, unknown> {
+  const runs = ledger
+    .listRuns({ limit: 50 })
+    .filter((run) => runMatchesFilters(run, { principal }));
+  return {
+    generatedAt: new Date().toISOString(),
+    runs,
+    approvals: listPendingApprovals(ledger, { principal }),
+    latestRunId: runs[0]?.id,
+    latestEvents: runs[0] ? ledger.timeline(runs[0].id).slice(-25) : []
+  };
+}
+
+function findPrincipalForToken(auth: NormalizedAuthOptions, token: string): OperatorPrincipal | undefined {
+  for (const credential of auth.bearerTokens) {
+    if (tokensEqual(credential.token, token)) {
+      return credential.principal;
+    }
+  }
+
+  return undefined;
+}
+
+function requireApprovalWriteAccess(principal: OperatorPrincipal | undefined): void {
+  if (!principal) {
+    return;
+  }
+
+  if (!principal.roles.some((role) => role === "approver" || role === "admin")) {
+    throw new HttpError(403, "Approval write access requires approver role");
+  }
+}
+
+function requireRunAccess(run: RunRecord, principal: OperatorPrincipal | undefined): void {
+  if (!runMatchesFilters(run, { principal })) {
+    throw new HttpError(403, "Run is outside operator scope");
+  }
+}
+
+function validateRequestedActor(value: unknown, principal: OperatorPrincipal | undefined): void {
+  if (!principal || value === undefined) {
+    return;
+  }
+
+  if (isRecord(value) && typeof value.id === "string" && value.id.length > 0 && value.id !== principal.id) {
+    throw new HttpError(403, "Approval actor must match authenticated operator");
+  }
+}
+
+function actorFromPrincipal(principal: OperatorPrincipal): Record<string, unknown> {
+  return {
+    type: "human",
+    id: principal.id,
+    roles: principal.roles
+  };
+}
+
+function principalToPayload(principal: OperatorPrincipal): Record<string, unknown> {
+  return {
+    id: principal.id,
+    roles: principal.roles,
+    allowedUsers: principal.allowedUsers,
+    allowedWorkspaces: principal.allowedWorkspaces
+  };
+}
+
+function tokensEqual(expected: string, actual: string): boolean {
+  const expectedBytes = Buffer.from(expected);
+  const actualBytes = Buffer.from(actual);
+  return expectedBytes.length === actualBytes.length && timingSafeEqual(expectedBytes, actualBytes);
+}
+
 function hasTerminalApproval(events: RunEvent[], request: RunEvent): boolean {
   const requestedAction = optionalString(request.payload.action);
+  const requestedSequence = request.sequence;
   return events.some((event) => {
     if (event.sequence <= request.sequence || event.kind !== "approval_recorded") {
+      return false;
+    }
+    if (typeof event.payload.requestSequence === "number" && event.payload.requestSequence !== requestedSequence) {
       return false;
     }
     const decision = optionalString(event.payload.decision);
@@ -356,6 +582,75 @@ function hasTerminalApproval(events: RunEvent[], request: RunEvent): boolean {
     const recordedAction = optionalString(event.payload.action);
     return requestedAction === undefined || recordedAction === undefined || recordedAction === requestedAction;
   });
+}
+
+function approvalMatchesFilters(
+  run: RunRecord,
+  event: RunEvent,
+  filters: { user?: string; workspace?: string; principal?: OperatorPrincipal }
+): boolean {
+  const workspaceCandidates = [run.workspace, optionalString(event.payload.workspace)].filter(
+    (value): value is string => value !== undefined
+  );
+  const userCandidates = approvalUserCandidates(run, event);
+
+  return (
+    matchesStringScope(workspaceCandidates, filters.workspace) &&
+    matchesStringScope(userCandidates, filters.user) &&
+    matchesStringScope(workspaceCandidates, undefined, filters.principal?.allowedWorkspaces) &&
+    matchesStringScope(userCandidates, undefined, filters.principal?.allowedUsers)
+  );
+}
+
+function runMatchesFilters(
+  run: RunRecord,
+  filters: { user?: string; workspace?: string; principal?: OperatorPrincipal }
+): boolean {
+  return (
+    matchesStringScope([run.workspace], filters.workspace) &&
+    matchesStringScope(runUserCandidates(run), filters.user) &&
+    matchesStringScope([run.workspace], undefined, filters.principal?.allowedWorkspaces) &&
+    matchesStringScope(runUserCandidates(run), undefined, filters.principal?.allowedUsers)
+  );
+}
+
+function matchesStringScope(candidates: string[], exact?: string, allowed?: readonly string[]): boolean {
+  if (exact !== undefined && !candidates.includes(exact)) {
+    return false;
+  }
+
+  return allowed === undefined || allowed.length === 0 || candidates.some((candidate) => allowed.includes(candidate));
+}
+
+function approvalUserCandidates(run: RunRecord, event: RunEvent): string[] {
+  return uniqueStrings([
+    ...runUserCandidates(run),
+    optionalString(event.payload.user),
+    optionalString(event.payload.userId),
+    actorId(event.payload.requestedBy),
+    actorId(event.payload.actor)
+  ]);
+}
+
+function runUserCandidates(run: RunRecord): string[] {
+  return uniqueStrings([
+    optionalString(run.metadata.user),
+    optionalString(run.metadata.userId),
+    actorId(run.metadata.requestedBy),
+    actorId(run.metadata.owner)
+  ]);
+}
+
+function actorId(value: unknown): string | undefined {
+  return isRecord(value) ? optionalString(value.id) : undefined;
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => value !== undefined))];
+}
+
+function paginateRuns(runs: RunRecord[], offset: number, limit: number): RunRecord[] {
+  return runs.slice(offset, offset + limit);
 }
 
 async function readJsonBody(request: IncomingMessage, maxBodyBytes: number): Promise<unknown> {
@@ -439,8 +734,17 @@ function optionalSearchParam(url: URL, name: string): string | undefined {
   return value === null || value === "" ? undefined : value;
 }
 
+function userFilterFromUrl(url: URL): string | undefined {
+  return optionalSearchParam(url, "user") ?? optionalSearchParam(url, "userId");
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizeStringList(value: readonly string[] | undefined): string[] | undefined {
+  const normalized = uniqueStrings(value?.map((item) => (item.length > 0 ? item : undefined)) ?? []);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function stringFromPayload(value: unknown, fallback: string): string {
@@ -463,6 +767,11 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
 function sendError(response: ServerResponse, error: unknown): void {
   const statusCode = error instanceof HttpError ? error.statusCode : 500;
   const message = error instanceof Error ? error.message : "Internal server error";
+  if (error instanceof HttpError) {
+    for (const [name, value] of Object.entries(error.headers)) {
+      response.setHeader(name, value);
+    }
+  }
   sendJson(response, statusCode, { error: message });
 }
 
@@ -473,8 +782,18 @@ function formatHostForUrl(host: string): string {
 class HttpError extends Error {
   constructor(
     readonly statusCode: number,
-    message: string
+    message: string,
+    readonly headers: Record<string, string> = {}
   ) {
     super(message);
   }
+}
+
+interface NormalizedAuthOptions {
+  bearerTokens: NormalizedBearerCredential[];
+}
+
+interface NormalizedBearerCredential {
+  token: string;
+  principal: OperatorPrincipal;
 }
