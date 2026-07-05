@@ -100,11 +100,20 @@ describe("web cockpit renderer", () => {
 
     expect(html).toContain("rw.token");
     expect(html).toContain("/operator/me");
+    expect(html).toContain("data-operator-session");
+    expect(html).toContain("Operator roles");
+    expect(html).toContain("role:");
+    expect(html).toContain("workspace:");
+    expect(html).toContain("policy writes:");
+    expect(html).toContain("canRequestPolicyEdit");
+    expect(html).toContain("Admin role required before audited policy edit controls are shown.");
     expect(html).toContain("/approvals/pending");
     expect(html).toContain("/receipts");
     expect(html).toContain("/receipt?format=json");
     expect(html).toContain("Effective policy digest");
-    expect(html).toContain("Policy explain/edit placeholder");
+    expect(html).toContain("Audited policy edit placeholder");
+    expect(html).toContain("Admin operator verified. Policy writes remain disabled while the audited edit workflow is prepared.");
+    expect(html).toContain("Policy edit unavailable");
     expect(html).toContain("data-approval-run");
     expect(html).toContain("EventSource");
     expect(html).toContain("new URL(apiBase, window.location.href)");

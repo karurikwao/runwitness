@@ -127,6 +127,30 @@ export interface SkillExecutionBrokerResult {
   receipt: SkillExecutionBrokerReceipt;
 }
 
+export interface BrokeredSkillRunDecision {
+  allowed: boolean;
+  decision: SkillExecutionBrokerDecision;
+  event: SkillExecutionBrokerEvent;
+  receipt: SkillExecutionBrokerReceipt;
+}
+
+export interface BrokeredSkillRunContext {
+  decisions: readonly BrokeredSkillRunDecision[];
+  events: readonly SkillExecutionBrokerEvent[];
+  receipts: readonly SkillExecutionBrokerReceipt[];
+}
+
+export type BrokeredSkillExecutor<TResult> = (context: BrokeredSkillRunContext) => TResult | Promise<TResult>;
+
+export interface BrokeredSkillRunResult<TResult> {
+  executed: boolean;
+  status: "executed" | "blocked";
+  decisions: readonly BrokeredSkillRunDecision[];
+  events: readonly SkillExecutionBrokerEvent[];
+  receipts: readonly SkillExecutionBrokerReceipt[];
+  output?: TResult;
+}
+
 interface ResolvedBrokerInput {
   manifest: SkillManifest;
   skill: SkillExecutionBrokerSkillRef;
@@ -245,6 +269,43 @@ export function createSkillExecutionBroker(
   return new SkillExecutionBroker(input, options);
 }
 
+export async function runBrokeredSkill<TResult>(
+  input: SkillExecutionBrokerInput,
+  actions: readonly SkillRuntimeAction[],
+  executor: BrokeredSkillExecutor<TResult>,
+  options: SkillExecutionBrokerOptions = {}
+): Promise<BrokeredSkillRunResult<TResult>> {
+  const broker = createSkillExecutionBroker(input, options);
+  const decisions = actions.map((action) => toBrokeredRunDecision(broker.requestAction(action)));
+  const events = decisions.map((decision) => decision.event);
+  const receipts = decisions.map((decision) => decision.receipt);
+
+  if (decisions.some((decision) => !decision.allowed)) {
+    return {
+      executed: false,
+      status: "blocked",
+      decisions,
+      events,
+      receipts
+    };
+  }
+
+  const context: BrokeredSkillRunContext = {
+    decisions,
+    events,
+    receipts
+  };
+  const output = await executor(context);
+  return {
+    executed: true,
+    status: "executed",
+    decisions,
+    events,
+    receipts,
+    output
+  };
+}
+
 export function skillShellAction(command: string): SkillShellRuntimeAction {
   return {
     kind: "shell",
@@ -302,6 +363,15 @@ export function skillSecretAction(name: string): SkillSecretRuntimeAction {
   return {
     kind: "secret",
     name
+  };
+}
+
+function toBrokeredRunDecision(result: SkillExecutionBrokerResult): BrokeredSkillRunDecision {
+  return {
+    allowed: result.allowed,
+    decision: result.decision,
+    event: result.event,
+    receipt: result.receipt
   };
 }
 

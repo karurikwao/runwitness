@@ -60,7 +60,7 @@ A Skill is a reusable capability. In RunWitness, skills must become declarative 
 
 The current code parses manifests, canonicalizes them, computes a digest, summarizes permission risk, verifies optional Ed25519 signatures, checks a local trust registry, assesses install versus quarantine, and checks runtime shell, filesystem, network, and named-secret actions against declared permissions.
 
-The skill execution broker records allow/deny decisions for requested shell, filesystem, network, and secret actions without executing untrusted code. Future hardening should connect every real skill runtime path to that broker.
+The skill execution broker records allow/deny decisions for requested shell, filesystem, network, and secret actions without executing untrusted code. The brokered skill runner can require all requested actions to pass before invoking an executor callback. Future hardening should connect every real skill runtime path to that brokered runner.
 
 ## Approval
 
@@ -75,24 +75,24 @@ An Approval is a recorded decision for a risky action. It is not a vague memory.
 
 ## Adapter
 
-An Adapter connects RunWitness to something that can do work. The current adapter registry includes streamed `local-command` plus OpenClaw and Hermes command-wrapper foundations that require configured external tools.
+An Adapter connects RunWitness to something that can do work. The current adapter registry includes streamed `local-command`, OpenClaw and Hermes command-wrapper foundations that require configured external tools, and generic browser automation, MCP, CI, and deployment command/JSONL wrappers.
 
-Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness marks that portion of the run as opaque rather than implying full observability. Future native adapters can supervise Codex, Claude Code, MCP servers, CI jobs, browser automation, and deployment systems.
+Adapters should declare what they can expose. If an adapter cannot report nested actions, RunWitness marks that portion of the run as opaque rather than implying full observability. Future native adapters can supervise Codex, Claude Code, MCP servers, CI jobs, browser automation, and deployment systems more deeply than generic wrappers.
 
 ## Sandbox
 
-The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, network command preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, rollback bundle primitives, and rollback apply/dry-run helpers.
+The Sandbox package is a local hardening toolkit, not a perfect isolation boundary. It provides workspace snapshots, diffs, command write preflight, network command preflight, safe path resolution, protected path checks, filtered environments, isolated temporary workspace copies, auditable process isolation plans, rollback bundle primitives, and rollback apply/dry-run helpers. The orchestrator can opt into rollback baseline/bundle creation and dry-run/apply behavior after failed commands.
 
-Commands still run as host processes. Network access is detected from command text but not blocked at the OS boundary, nested process tracing is incomplete, and rollback helpers are not the same as guaranteed automatic rollback.
+Commands still run as host processes. Network access is detected from command text and can block a run before execution, but it is not blocked at the OS boundary. Nested process tracing is incomplete, and rollback orchestration is opt-in rather than guaranteed recovery across all failure modes.
 
 ## Operator
 
 An Operator is a human or service principal inspecting runs and deciding approvals. The local operator API can list runs, timelines, receipts, and pending approvals. It can optionally require bearer tokens with viewer, approver, or admin roles and user/workspace scopes.
 
-The live cockpit renderer can poll the API, subscribe to event snapshots, and post approval decisions. It is still a local cockpit foundation rather than a complete hosted multi-user control plane.
+The live cockpit renderer can poll the API, subscribe to event snapshots, post approval decisions, show operator identity/session state, and surface policy-lineage views. It is still a local cockpit foundation rather than a complete hosted multi-user control plane.
 
 ## Identity And Secrets
 
 The identity primitives model users, workspace roles, workspace grants, secret grants, and access decisions. They are currently in-memory building blocks for checking whether a user can read, write, or administer a workspace or named secret.
 
-The local secret broker stores local in-memory secret values, returns redacted descriptors, checks identity grants before describe/read/write/delete actions, and emits redacted audit events plus receipt-shaped records. The encrypted local secret vault persists redacted descriptors plus AES-GCM encrypted values on disk, and redaction helpers can scrub configured secrets from command output. These are still not a universal runtime credential boundary.
+The local secret broker stores local in-memory secret values, returns redacted descriptors, checks identity grants before describe/read/write/delete actions, and emits redacted audit events plus receipt-shaped records. The encrypted local secret vault persists redacted descriptors plus AES-GCM encrypted values on disk, and redaction helpers can scrub configured or environment-sourced secrets from command output. These are still not a universal runtime credential boundary.

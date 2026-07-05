@@ -15,21 +15,22 @@ RunWitness currently provides:
 - JSON and Markdown receipt export in `packages/receipts`.
 - YAML skill manifest parsing, canonical digesting, permission risk summaries, Ed25519 signature verification, trust registry checks, install/quarantine assessment, and runtime permission checks in `packages/skills`.
 - Adapter contract and registry, including streamed `local-command`, `openclaw`, and `hermes` command-wrapper adapters.
-- Sandbox primitives for write preflight, network command preflight, path safety, filtered environments, isolated temporary workspaces, rollback bundles, and rollback apply/dry-run.
+- Adapter foundations for generic browser automation, MCP, CI, and deployment command/JSONL wrappers.
+- Sandbox primitives for write preflight, network command preflight, path safety, filtered environments, isolated temporary workspaces, process isolation planning, rollback bundles, rollback apply/dry-run, and opt-in rollback orchestration after failed commands.
 - A local operator API for runs, timelines, approvals, receipts, authenticated event snapshots, and scoped operator access.
-- Static and live operator cockpit renderers in `apps/web` plus shared UI rendering helpers in `packages/ui`.
-- User/workspace filtering and secret-isolation primitives through an in-memory identity store, local secret broker, encrypted local vault, output redaction helper, operator scopes, environment filtering, and skill secret permissions.
+- Static and live operator cockpit renderers in `apps/web` plus shared UI rendering helpers in `packages/ui`, including authenticated operator identity/session display.
+- User/workspace filtering and secret-isolation primitives through an in-memory identity store, local secret broker, encrypted local vault, output redaction helper, `--redact-secret-env`, operator scopes, environment filtering, and skill secret permissions.
 
 RunWitness does not currently provide:
 
 - A hard OS process sandbox, container, VM, or kernel-level isolation boundary.
 - Network egress blocking.
 - Full nested-process or nested-agent tracing.
-- A universal runtime skill execution broker across every real skill path.
-- Deep native OpenClaw, Hermes, Codex, Claude Code, MCP, browser, CI, or deployment adapters.
+- A universal runtime skill execution broker across every real skill path, despite the brokered-runner helper.
+- Deep native OpenClaw, Hermes, Codex, Claude Code, MCP, browser, CI, or deployment adapters beyond generic wrappers.
 - A fully bundled hosted cockpit app with configuration, auth setup, and policy editing.
 - Universal runtime secret brokering or full multi-user RBAC.
-- Guaranteed automatic rollback.
+- Guaranteed automatic rollback across all failure modes.
 
 ## Policy Files and Approvals
 
@@ -62,12 +63,13 @@ Implemented:
 - A local trust registry normalizes trusted and revoked key fingerprints.
 - Install assessment returns install or quarantine with concrete reasons.
 - Runtime permission checks cover shell commands, filesystem read/write paths, network hosts/URLs, and named secrets.
+- `runBrokeredSkill` can require requested runtime actions to pass broker checks before invoking a skill executor callback.
 
 Security boundary:
 
 - A parsed manifest is not a trusted skill.
 - A trusted signature proves manifest identity and integrity for a local key, not safety of all runtime behavior.
-- Runtime permission checks can be forced through the non-executing skill execution broker, but real skill runners still need to be connected to it.
+- Runtime permission checks can be forced through the skill execution broker and brokered-runner helper, but real skill runtimes must call that helper before this becomes universal enforcement.
 
 ## Sandbox Limits
 
@@ -84,6 +86,9 @@ Implemented:
 - Copy a workspace into a disposable temporary workspace for `run --sandbox`.
 - Create rollback baselines and rollback bundles.
 - Apply rollback bundles in dry-run or real mode with path safety and before-file verification.
+- Block denied network preflight before execution and pre-approve ask-level network preflight with `--yes`.
+- Create rollback baselines/bundles from `runWitnessedCommand` and dry-run/apply rollback after failed commands when rollback is enabled.
+- Create auditable process isolation plans for host, temp-workspace, container, Windows Job Object, and Linux namespace strategies.
 
 Limits:
 
@@ -91,7 +96,8 @@ Limits:
 - The temporary workspace reduces direct writes to the source workspace but is not an OS sandbox.
 - Network access is preflighted from command text but not blocked at the OS boundary.
 - Preflight detection is heuristic and cannot see every nested process or dynamic path.
-- Rollback apply helpers exist, but automatic guaranteed rollback orchestration is not complete.
+- Rollback orchestration is opt-in and not guaranteed across every failure mode.
+- Process isolation planning does not itself spawn containers or OS-specific runners.
 - Ignored folders are excluded from file-change evidence by design.
 
 ## Adapter Roadmap
@@ -104,12 +110,13 @@ Implemented:
 - Adapter capabilities declare local execution, external tool usage, event streaming, artifacts, and opaque actions.
 - Orchestrated non-local adapters normalize stream events into RunWitness ledger events and receipt timelines.
 - Adapter execution accepts cancellation signals.
+- Generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters are registered by default and normalize structured events when wrappers emit them.
 
 Remaining:
 
 - Add direct native protocol adapters where runtimes expose richer structured events and artifacts.
 - Expand cleanup semantics across external adapters.
-- Add browser automation, MCP, CI, deployment, Codex, and Claude Code adapters.
+- Upgrade browser automation, MCP, CI, and deployment wrappers to native integrations where possible; add Codex and Claude Code adapters.
 
 ## Web Operator Cockpit
 
@@ -121,6 +128,7 @@ Implemented:
 - Operator auth supports bearer tokens, timing-safe comparison, scoped principals, and role checks for approval writes.
 - `runwitness serve` supports bearer auth through token, token-env, JSON config, role, user-scope, and workspace-scope flags without printing token values.
 - The live cockpit surfaces policy lineage/digests from selected run timeline and receipt artifacts.
+- The live cockpit renders `/operator/me` identity, role, scope, capability, and policy-write state.
 
 Remaining:
 
@@ -137,6 +145,7 @@ Implemented:
 - `LocalSecretBroker` stores local in-memory secrets, returns redacted descriptors, checks grants, and emits redacted audit events plus receipt-shaped records.
 - `EncryptedLocalSecretVault` stores local AES-256-GCM encrypted secrets with redacted descriptors.
 - `redactKnownSecrets` and `runWitnessedCommand.secretRedactions` can scrub configured values from command output event payloads.
+- `runwitness run --redact-secret-env` reads redaction values from named environment variables without printing those values.
 - Operator API list endpoints and pending approvals can be filtered by user and workspace.
 - Authenticated operator principals can be scoped to allowed users and workspaces.
 - Approval writes record authenticated operator identity and reject actor spoofing.

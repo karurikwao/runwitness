@@ -9,7 +9,8 @@ import {
   runWitnessedCommand,
   type OperatorAuthOptions,
   type OperatorBearerCredential,
-  type OperatorRole
+  type OperatorRole,
+  type WitnessedRollbackMode
 } from "@runwitness/core";
 import { evaluateCommandPolicy, loadPolicyHierarchy } from "@runwitness/policy";
 
@@ -36,6 +37,13 @@ program
   .option("--sandbox-temp-root <path>", "parent directory for isolated sandbox workspaces")
   .option("--write-allow <path...>", "sandbox write allowlist paths relative to the workspace")
   .option("--protect <path...>", "sandbox protected paths relative to the workspace")
+  .option("--network-allow <host>", "network preflight allowlist host or wildcard; repeatable", collectOption, [] as string[])
+  .option("--network-deny <host>", "network preflight denylist host or wildcard; repeatable", collectOption, [] as string[])
+  .option("--network-default <decision>", "network preflight default decision: allow, ask, or deny")
+  .option("--rollback", "create a rollback baseline and bundle for the run")
+  .option("--rollback-mode <mode>", "rollback behavior after failed commands: bundle, dry-run, or apply", "bundle")
+  .option("--rollback-dir <path>", "directory for rollback baseline and bundle artifacts")
+  .option("--redact-secret-env <name>", "environment variable whose value should be redacted from command output; repeatable", collectOption, [] as string[])
   .option("--yes", "auto-approve policy actions that would otherwise ask")
   .allowExcessArguments(true)
   .argument("<command...>", "command to run")
@@ -69,14 +77,9 @@ program
             explanation: hierarchy.explanation
           }
         : undefined,
-      sandbox: options.sandbox === true
-        ? {
-            enabled: true,
-            tempRoot: options.sandboxTempRoot ? String(options.sandboxTempRoot) : undefined,
-            allowedWritePaths: toStringList(options.writeAllow),
-            protectedPaths: toStringList(options.protect)
-          }
-        : undefined
+      sandbox: buildRunSandboxOptions(options),
+      rollback: buildRollbackOptions(options),
+      secretRedactions: readSecretRedactionsFromEnvironment(splitStringList(toStringList(options.redactSecretEnv)))
     });
 
     console.log(pc.bold("RunWitness receipt generated"));
@@ -260,6 +263,72 @@ function toStringList(value: unknown): string[] | undefined {
 
 function collectOption(value: string, previous: string[] | undefined): string[] {
   return [...(previous ?? []), value];
+}
+
+function buildRunSandboxOptions(options: Record<string, unknown>) {
+  const networkAllowedHosts = splitStringList(toStringList(options.networkAllow));
+  const networkDeniedHosts = splitStringList(toStringList(options.networkDeny));
+  const hasNetworkOptions =
+    networkAllowedHosts.length > 0 ||
+    networkDeniedHosts.length > 0 ||
+    typeof options.networkDefault === "string";
+  const network = hasNetworkOptions
+    ? {
+        allowedHosts: networkAllowedHosts,
+        deniedHosts: networkDeniedHosts,
+        defaultDecision: parseNetworkDefault(String(options.networkDefault ?? "ask"))
+      }
+    : undefined;
+
+  if (options.sandbox !== true && !network) {
+    return undefined;
+  }
+
+  return {
+    enabled: options.sandbox === true,
+    tempRoot: options.sandboxTempRoot ? String(options.sandboxTempRoot) : undefined,
+    allowedWritePaths: toStringList(options.writeAllow),
+    protectedPaths: toStringList(options.protect),
+    ...(network ? { network } : {})
+  };
+}
+
+function buildRollbackOptions(options: Record<string, unknown>) {
+  if (options.rollback !== true) {
+    return undefined;
+  }
+
+  return {
+    enabled: true,
+    mode: parseRollbackMode(String(options.rollbackMode ?? "bundle")),
+    outputDirectory: options.rollbackDir ? String(options.rollbackDir) : undefined
+  };
+}
+
+function parseNetworkDefault(value: string): "allow" | "ask" | "deny" {
+  if (value === "allow" || value === "ask" || value === "deny") {
+    return value;
+  }
+
+  throw new Error("--network-default must be one of: allow, ask, deny");
+}
+
+function parseRollbackMode(value: string): WitnessedRollbackMode {
+  if (value === "bundle" || value === "dry-run" || value === "apply") {
+    return value;
+  }
+
+  throw new Error("--rollback-mode must be one of: bundle, dry-run, apply");
+}
+
+function readSecretRedactionsFromEnvironment(names: string[]): string[] {
+  return names.map((name) => {
+    const value = process.env[name];
+    if (!value) {
+      throw new Error(`Environment variable ${name} is not set or empty`);
+    }
+    return value;
+  });
 }
 
 async function resolveServeAuthOptions(options: Record<string, unknown>): Promise<OperatorAuthOptions | undefined> {

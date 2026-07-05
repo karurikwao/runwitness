@@ -12,13 +12,21 @@ import { classifyShellCommand, createApprovalRecord, evaluateCommandPolicy, type
 import { buildReceipt, writeProofBundle } from "@runwitness/receipts";
 import {
   buildFilteredEnvironment,
+  applyRollbackBundle,
   createIsolatedTempWorkspace,
+  createRollbackBaseline,
+  createRollbackBundle,
+  createWorkspaceSnapshot,
   DEFAULT_IGNORED_NAMES,
   diffSnapshots,
+  preflightCommandNetwork,
   preflightCommandWrites,
   snapshotWorkspace,
   type FilteredEnvironmentOptions,
-  type IsolatedTempWorkspace
+  type IsolatedTempWorkspace,
+  type NetworkPreflightPolicy,
+  type RollbackApplyResult,
+  type RollbackBaseline
 } from "@runwitness/sandbox";
 import { createStepId } from "./ids.js";
 import { RunLedger } from "./ledger.js";
@@ -38,6 +46,7 @@ export interface WitnessedCommandOptions {
   policy?: CommandPolicy;
   policyMetadata?: Record<string, unknown>;
   sandbox?: WitnessedSandboxOptions;
+  rollback?: WitnessedRollbackOptions;
   signal?: AbortSignal;
   secretRedactions?: Iterable<string | SecretRedactionSource>;
 }
@@ -48,6 +57,15 @@ export interface WitnessedSandboxOptions {
   allowedWritePaths?: string[];
   protectedPaths?: string[];
   environment?: FilteredEnvironmentOptions;
+  network?: NetworkPreflightPolicy;
+}
+
+export type WitnessedRollbackMode = "bundle" | "dry-run" | "apply";
+
+export interface WitnessedRollbackOptions {
+  enabled?: boolean;
+  mode?: WitnessedRollbackMode;
+  outputDirectory?: string;
 }
 
 export interface WitnessedCommandResult {
@@ -177,6 +195,73 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
       };
     }
 
+    const networkPreflightEnabled = sandboxEnabled || options.sandbox?.network !== undefined;
+    if (networkPreflightEnabled) {
+      const networkPreflight = preflightCommandNetwork(options.command, options.sandbox?.network);
+      await ledger.appendEvent(run.id, "network_preflight", {
+        enabled: true,
+        allowed: networkPreflight.allowed,
+        decision: networkPreflight.decision,
+        detectedHosts: networkPreflight.detectedHosts,
+        violations: networkPreflight.violations
+      });
+
+      if (!networkPreflight.allowed) {
+        const reasons = networkPreflight.violations.map((access) =>
+          access.decision === "deny"
+            ? `Network host denied: ${access.host}`
+            : `Network host requires approval: ${access.host}`
+        );
+        await ledger.appendEvent(run.id, "approval_requested", {
+          action: options.command,
+          reasons,
+          riskLevel: "high",
+          policyDecision: networkPreflight.decision,
+          network: {
+            violations: networkPreflight.violations
+          }
+        });
+        const approved = networkPreflight.decision === "ask" && options.yes;
+        const approval = createApprovalRecord({
+          runId: run.id,
+          actionType: "network",
+          action: options.command,
+          actionSummary: `Network access for ${networkPreflight.violations.map((access) => access.host).join(", ")}`,
+          policyDecision: networkPreflight.decision,
+          decision: approved ? "allow" : "deny",
+          mode: approved ? "preapproved" : "non_interactive",
+          rationale: reasons.join(", "),
+          metadata: {
+            detectedHosts: networkPreflight.detectedHosts,
+            violations: networkPreflight.violations
+          }
+        });
+        await ledger.appendEvent(run.id, "approval_recorded", {
+          ...approval,
+          reasons
+        });
+
+        if (!approved) {
+          const blockedRun = await ledger.finishRun(run.id, "blocked");
+          const receipt = buildReceipt(blockedRun, ledger.timeline(run.id));
+          const bundle = await writeProofBundle(receipt, receiptDir);
+          await ledger.appendEvent(run.id, "receipt_exported", {
+            jsonPath: bundle.jsonPath,
+            markdownPath: bundle.markdownPath
+          });
+          const finalReceipt = buildReceipt(blockedRun, ledger.timeline(run.id));
+          await writeProofBundle(finalReceipt, receiptDir);
+          return {
+            run: blockedRun,
+            exitCode: null,
+            receiptJsonPath: bundle.jsonPath,
+            receiptMarkdownPath: bundle.markdownPath,
+            dbPath
+          };
+        }
+      }
+    }
+
     const filteredEnvironment = buildFilteredEnvironment(options.sandbox?.environment);
     await ledger.appendEvent(run.id, "sandbox_environment", {
       enabled: sandboxEnabled,
@@ -211,6 +296,13 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
       });
     }
 
+    const rollbackBaseline = await createRollbackBaselineForRun({
+      options,
+      dataDir,
+      commandWorkspace,
+      ledger,
+      runId: run.id
+    });
     const before = await snapshotWorkspace(commandWorkspace);
     const stepId = createStepId("cmd");
     const useAdapter = isNonLocalAdapter(adapter);
@@ -279,6 +371,16 @@ export async function runWitnessedCommand(options: WitnessedCommandOptions): Pro
         durationMs: commandResult.durationMs
       });
     }
+
+    await finalizeRollbackForRun({
+      options,
+      dataDir,
+      commandWorkspace,
+      ledger,
+      runId: run.id,
+      commandExitCode: commandResult.exitCode,
+      rollbackBaseline
+    });
 
     const finishedRun = await ledger.finishRun(run.id, commandResult.exitCode === 0 ? "completed" : "failed");
     const receipt = buildReceipt(finishedRun, ledger.timeline(run.id));
@@ -418,4 +520,135 @@ async function appendAdapterLedgerEvent(
   }
 
   await ledger.appendEvent(runId, event.kind, payload, stepId);
+}
+
+interface RollbackBaselineForRunOptions {
+  options: WitnessedCommandOptions;
+  dataDir: string;
+  commandWorkspace: string;
+  ledger: RunLedger;
+  runId: string;
+}
+
+async function createRollbackBaselineForRun({
+  options,
+  dataDir,
+  commandWorkspace,
+  ledger,
+  runId
+}: RollbackBaselineForRunOptions): Promise<RollbackBaseline | undefined> {
+  if (options.rollback?.enabled !== true) {
+    return undefined;
+  }
+
+  const outputDirectory = rollbackOutputDirectory(options, dataDir);
+  const baseline = await createRollbackBaseline(commandWorkspace, {
+    outputDirectory,
+    baselineName: `${runId}-baseline`
+  });
+  await ledger.appendEvent(runId, "rollback_baseline_created", {
+    enabled: true,
+    mode: rollbackMode(options),
+    workspaceRoot: commandWorkspace,
+    outputDirectory,
+    directory: baseline.directory,
+    manifestPath: baseline.manifestPath,
+    fileCount: baseline.snapshot.files.length
+  });
+  return baseline;
+}
+
+interface FinalizeRollbackForRunOptions {
+  options: WitnessedCommandOptions;
+  dataDir: string;
+  commandWorkspace: string;
+  ledger: RunLedger;
+  runId: string;
+  commandExitCode: number | null;
+  rollbackBaseline?: RollbackBaseline;
+}
+
+async function finalizeRollbackForRun({
+  options,
+  dataDir,
+  commandWorkspace,
+  ledger,
+  runId,
+  commandExitCode,
+  rollbackBaseline
+}: FinalizeRollbackForRunOptions): Promise<void> {
+  if (!rollbackBaseline) {
+    return;
+  }
+
+  const mode = rollbackMode(options);
+  const outputDirectory = rollbackOutputDirectory(options, dataDir);
+
+  try {
+    const afterSnapshot = await createWorkspaceSnapshot(commandWorkspace);
+    const rollbackBundle = await createRollbackBundle({
+      beforeSnapshot: rollbackBaseline.snapshot,
+      afterSnapshot,
+      beforeFilesRoot: rollbackBaseline.filesRoot,
+      outputDirectory,
+      workspaceRoot: commandWorkspace,
+      bundleName: `${runId}-rollback`
+    });
+
+    await ledger.appendEvent(runId, "rollback_bundle_created", {
+      enabled: true,
+      mode,
+      workspaceRoot: commandWorkspace,
+      outputDirectory,
+      directory: rollbackBundle.directory,
+      manifestPath: rollbackBundle.manifestPath,
+      entryCount: rollbackBundle.manifest.entries.length,
+      changed: rollbackBundle.manifest.changes
+    });
+
+    if (commandExitCode !== 0 && mode !== "bundle") {
+      const applyResult = await applyRollbackBundle({
+        workspaceRoot: commandWorkspace,
+        manifest: rollbackBundle.manifest,
+        bundleDirectory: rollbackBundle.directory,
+        dryRun: mode === "dry-run"
+      });
+      await ledger.appendEvent(runId, "rollback_apply_result", summarizeRollbackApplyResult(applyResult));
+    }
+  } catch (error) {
+    await ledger.appendEvent(runId, "rollback_error", {
+      mode,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function rollbackMode(options: WitnessedCommandOptions): WitnessedRollbackMode {
+  return options.rollback?.mode ?? "bundle";
+}
+
+function rollbackOutputDirectory(options: WitnessedCommandOptions, dataDir: string): string {
+  return path.resolve(options.rollback?.outputDirectory ?? path.join(dataDir, "rollback"));
+}
+
+function summarizeRollbackApplyResult(result: RollbackApplyResult): Record<string, unknown> {
+  return {
+    dryRun: result.dryRun,
+    workspaceRoot: result.workspaceRoot,
+    bundleDirectory: result.bundleDirectory,
+    manifestPath: result.manifestPath,
+    entries: result.entries.length,
+    applied: result.applied.length,
+    wouldApply: result.wouldApply.length,
+    skipped: result.skipped.length,
+    errors: result.errors.length,
+    details: result.entries.map((entry) => ({
+      path: entry.path,
+      action: entry.action,
+      changeType: entry.changeType,
+      status: entry.status,
+      reason: entry.reason,
+      message: entry.message
+    }))
+  };
 }

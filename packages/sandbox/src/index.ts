@@ -4,6 +4,7 @@ export * from "./environment.js";
 export * from "./isolatedWorkspace.js";
 export * from "./networkPreflight.js";
 export * from "./pathSafety.js";
+export * from "./processIsolation.js";
 export * from "./rollbackApply.js";
 export * from "./rollbackBundle.js";
 export {

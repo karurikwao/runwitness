@@ -22,7 +22,7 @@ RunWitness should protect:
 
 An agent or skill may try to read or print credentials from paths such as `~/.ssh`, `~/.aws`, `.env`, browser profiles, shell history, or token stores.
 
-MVP posture:
+Current posture:
 
 - classify common secret-reading commands as risky
 - record approval decisions
@@ -51,7 +51,7 @@ Current limit:
 
 An agent may overwrite important files, delete a workspace, alter policy, or modify its own instructions.
 
-MVP posture:
+Current posture:
 
 - track added, modified, and deleted files
 - ignore generated dependency/build folders
@@ -60,12 +60,14 @@ MVP posture:
 - optionally run commands in an isolated temporary workspace copy with a filtered environment
 - create rollback baselines and rollback bundles
 - apply rollback bundles in dry-run or real mode with path safety and before-file verification
+- optionally create rollback evidence and dry-run/apply rollback after failed commands
+- create auditable process-isolation plans for host, temp-workspace, container, Windows Job Object, and Linux namespace strategies
 - preserve file-change evidence in receipts
 
 Future posture:
 
-- stronger process containment around writes
-- automatic rollback orchestration and recovery workflows
+- enforced process containment around writes
+- broader rollback recovery workflows
 - broader nested-process tracing
 
 Current limit:
@@ -73,19 +75,21 @@ Current limit:
 - write preflight is heuristic and cannot detect every dynamic or nested write
 - commands still run as host processes even when pointed at a temporary workspace
 - ignored generated/runtime folders are intentionally excluded from file-change evidence
-- rollback helpers are available, but not a guaranteed automatic rollback system
+- rollback orchestration is opt-in and not a guaranteed automatic rollback system
+- process isolation planning records intent and capability; it does not enforce an OS boundary
 
 ### Shell Commands
 
 Shell access can delete data, exfiltrate files, install malware, push broken code, or change machine state.
 
-MVP posture:
+Current posture:
 
 - classify risky commands such as `rm -rf`, `git push`, env dumps, secret path access, and network upload tools
 - block risky commands in non-interactive mode unless `--yes` pre-approval is supplied
 - filter secret-like environment variables and PATH entries for sandboxed execution
 - support `run --sandbox` to execute from a disposable temporary workspace copy
 - support command cancellation primitives through adapter abort signals
+- support opt-in rollback bundles plus dry-run/apply behavior after failed commands
 - record approvals in the ledger
 
 Future posture:
@@ -106,16 +110,17 @@ Current limit:
 
 An agent may send local files or secrets to external hosts.
 
-MVP posture:
+Current posture:
 
 - classify common exfiltration tools and commands as risky
 - evaluate command-text network hosts against declared policy allow rules
 - preflight command-text hosts through sandbox network allow/deny/default rules
+- block denied network preflight before execution and allow ask-level network preflight only when pre-approved
 - deny undeclared network hosts in skill runtime permission checks
 
 Future posture:
 
-- network allowlists
+- OS or runner-enforced network allowlists
 - per-run egress logging
 - domain and IP policy
 
@@ -128,7 +133,7 @@ Current limit:
 
 A page, document, issue, pull request, or skill can contain instructions that try to override user intent or extract secrets.
 
-MVP posture:
+Current posture:
 
 - document the risk
 - keep receipts so injected behavior is visible after the fact
@@ -143,7 +148,7 @@ Future posture:
 
 Skills can hide malicious instructions or scripts.
 
-MVP posture:
+Current posture:
 
 - parse, canonicalize, and digest YAML skill manifests
 - summarize declared permission risk
@@ -152,23 +157,24 @@ MVP posture:
 - assess install versus quarantine decisions with concrete reasons
 - check runtime shell, filesystem, network, and secret actions against declared permissions
 - record brokered allow/deny decisions for requested skill actions without executing untrusted code
+- provide `runBrokeredSkill` so callers can require broker allow decisions before invoking a skill executor
 
 Future posture:
 
-- connect every real skill runner to the broker so actions must pass permission checks
+- connect every real skill runner to the brokered-runner helper so actions must pass permission checks
 - install-time risk cards in the operator UI
 - receipt linkage for skill identity, grants, signature status, and runtime permission outcomes
 
 Current limit:
 
 - signature verification proves manifest integrity only when a trusted key is supplied
-- trust and runtime permission checks plus the broker are primitives; they do not yet guarantee that every real skill execution path is brokered
+- trust and runtime permission checks plus the brokered-runner helper are primitives; they do not yet guarantee that every real skill execution path is brokered
 
 ### Policy Tampering
 
 An agent may try to weaken local policy, alter approval rules, or edit trust configuration before taking a risky action.
 
-MVP posture:
+Current posture:
 
 - YAML policies can be loaded explicitly for CLI runs and policy checks
 - policy hierarchy loading supports built-in, workspace, user, and run-override precedence through CLI run/check/explain paths and the policy package
@@ -195,25 +201,26 @@ Current limit:
 
 An adapter may hide nested actions or only expose a coarse final result.
 
-MVP posture:
+Current posture:
 
 - the local command adapter records command text, exit code, stdout, stderr, duration, and workspace file diffs
 - streamed local-command runs emit lifecycle, stdout, stderr, and finished events
 - OpenClaw and Hermes command-wrapper adapters stream output, normalize structured JSONL/SSE artifact/action events, and mark nested external activity as opaque
+- generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters normalize structured events when emitted by the wrapped tool
 - orchestrated non-local adapter stream events are recorded in the run ledger
 
 Future posture:
 
-- richer native adapters for agent runtimes, browser automation, CI, and deployments
+- richer native adapters for agent runtimes, browser automation, MCP, CI, and deployments
 - cross-adapter cancellation and cleanup
 
-## Non-Goals In The MVP
+## Non-Goals In The Current Foundation
 
-The MVP is not a hard security sandbox. It is an observability, approval, sandbox primitive, and receipt layer. It makes work visible and auditable first, then later phases can turn policies into stronger enforcement.
+The current foundation is not a hard security sandbox. It is an observability, approval, sandbox primitive, and receipt layer. It makes work visible and auditable first, then later phases can turn policies into stronger enforcement.
 
 ## Sandbox Limits
 
-The current `packages/sandbox` package provides snapshot/diff utilities, write preflight, network command preflight, path safety, filtered environments, temporary workspace copies, rollback bundle primitives, and rollback apply helpers. It does not provide OS-level process isolation.
+The current `packages/sandbox` package provides snapshot/diff utilities, write preflight, network command preflight, path safety, filtered environments, temporary workspace copies, process isolation planning, rollback bundle primitives, and rollback apply helpers. The orchestrator can opt into rollback bundle creation and dry-run/apply behavior after failed commands. It does not provide OS-level process isolation.
 
 Current limits:
 
@@ -224,5 +231,6 @@ Current limits:
 - process trees are not contained
 - ignored folders are omitted from file-change receipts
 - temporary workspaces reduce source-workspace writes but do not stop a process from using host capabilities
+- rollback orchestration is opt-in and cannot guarantee recovery from every failure mode
 
-Future sandbox work should add stronger process containment, network egress controls, automatic rollback workflows, and OS-specific isolation notes.
+Future sandbox work should turn process isolation plans into enforced runners, add network egress controls, and broaden rollback workflows.

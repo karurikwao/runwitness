@@ -108,7 +108,7 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
   const state = {
     selectedRunId: main.getAttribute("data-selected-run") || undefined,
     eventSource: undefined,
-    operator: { authenticated: false, capabilities: {} }
+    operator: { authenticated: false, authRequired: false, capabilities: {} }
   };
 
   const token = () => window.localStorage.getItem(tokenKey) || "";
@@ -150,9 +150,9 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
     const [runs, approvals, operator] = await Promise.all([
       getJson("/runs?limit=50"),
       getJson("/approvals/pending"),
-      safeGetJson("/operator/me", { authenticated: false, capabilities: {} })
+      safeGetJson("/operator/me", { authenticated: false, authRequired: false, capabilities: {} })
     ]);
-    state.operator = operator || { authenticated: false, capabilities: {} };
+    state.operator = normalizeOperator(operator);
     if (!state.selectedRunId && runs.runs && runs.runs[0]) state.selectedRunId = runs.runs[0].id;
     const details = await loadSelectedRunDetails();
     render(runs.runs || [], approvals.approvals || [], details.events, details.receipts, details.policy);
@@ -183,6 +183,7 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
   }
 
   function render(runs, approvals, events, receipts, policy) {
+    renderOperatorSession();
     const runRows = runs.map((run) => '<tr' + (run.id === state.selectedRunId ? ' aria-current="true"' : "") + ' data-run-id="' + escapeHtml(run.id) + '">' +
       '<td>' + pill(run.status) + '</td>' +
       '<td><div class="rw-row__title">' + escapeHtml(run.task) + '</div><div class="rw-muted rw-code">' + escapeHtml(run.id) + '</div></td>' +
@@ -220,6 +221,40 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
 
   function panelBody(id) {
     return document.getElementById(id)?.closest(".rw-panel")?.querySelector(".rw-panel__body");
+  }
+
+  function renderOperatorSession() {
+    const topbar = main.querySelector(".rw-topbar");
+    if (!topbar) return;
+    let session = topbar.querySelector("[data-operator-session]");
+    if (!session) {
+      session = document.createElement("div");
+      session.className = "rw-meta";
+      session.setAttribute("data-operator-session", "true");
+      topbar.append(session);
+    }
+
+    const operator = state.operator || { authenticated: false, authRequired: false, capabilities: {} };
+    const principal = isObject(operator.principal) ? operator.principal : undefined;
+    const capabilities = isObject(operator.capabilities) ? operator.capabilities : {};
+    const authenticated = operator.authenticated === true;
+    const roles = operatorRoles(operator);
+    const scopes = operatorScopes(operator);
+    const sessionStatus = authenticated ? "authenticated" : operator.authRequired === true ? "token required" : "unauthenticated";
+    const sessionTone = authenticated ? "success" : operator.authRequired === true ? "danger" : "neutral";
+    const identity = principal?.id ? String(principal.id) : authenticated ? "authenticated operator" : "anonymous operator";
+    const roleBadges = roles.length > 0 ? roles.map((role) => pill(roleTone(role), "role:" + role)).join("") : pill("neutral", "role:none");
+    const scopeBadges = scopes.length > 0 ? scopes.map((scope) => pill("neutral", scope)).join("") : pill("neutral", "scope:all");
+    const capabilityBadges = [
+      capabilities.canApprove === true ? pill("success", "approve") : pill("neutral", "read-only approvals"),
+      capabilities.canExplainPolicy === true ? pill("success", "policy explain") : pill("neutral", "policy explain off"),
+      capabilities.policyWrites ? pill(capabilities.policyWrites === "disabled" ? "warning" : "success", "policy writes:" + String(capabilities.policyWrites)) : pill("warning", "policy writes:disabled")
+    ].join("");
+
+    session.innerHTML = '<div><strong>Operator</strong> <span class="rw-code">' + escapeHtml(identity) + '</span> ' + pill(sessionTone, sessionStatus) + '</div>' +
+      '<div class="rw-row__meta" aria-label="Operator roles">' + roleBadges + '</div>' +
+      '<div class="rw-row__meta" aria-label="Operator scope">' + scopeBadges + '</div>' +
+      '<div class="rw-row__meta" aria-label="Operator capabilities">' + capabilityBadges + '</div>';
   }
 
   function createPolicyViewModel(events, receiptArtifact) {
@@ -268,10 +303,10 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
     const capabilities = isObject(state.operator?.capabilities) ? state.operator.capabilities : {};
     if (state.operator?.authenticated === true && capabilities.canRequestPolicyEdit === true) {
       findings.push({
-        code: "policy-admin-placeholder",
-        label: "Policy explain/edit placeholder",
+        code: "policy-admin-audit-placeholder",
+        label: "Audited policy edit placeholder",
         decision: "admin",
-        description: "Authenticated admin-capable operator detected. Policy writes remain disabled until audited validation is available."
+        description: "Admin operator verified. Policy writes remain disabled while the audited edit workflow is prepared."
       });
     }
 
@@ -294,11 +329,42 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
   function renderPolicyBody(policy) {
     const findings = policy?.findings || [];
     const rules = policy?.rules || [];
+    const editState = renderPolicyEditState();
     const body = [
+      editState,
       findings.length > 0 ? '<div class="rw-stack">' + findings.map(renderPolicyRuleRow).join("") + '</div>' : "",
       rules.length > 0 ? '<div class="rw-stack">' + rules.map(renderPolicyRuleRow).join("") + '</div>' : ""
     ].filter(Boolean).join("");
     return body || '<div class="rw-empty">No policy lineage loaded.</div>';
+  }
+
+  function renderPolicyEditState() {
+    const operator = state.operator || { authenticated: false, authRequired: false, capabilities: {} };
+    const capabilities = isObject(operator.capabilities) ? operator.capabilities : {};
+    const roles = operatorRoles(operator);
+    const isAdmin = roles.includes("admin") || capabilities.canRequestPolicyEdit === true;
+    const authenticated = operator.authenticated === true;
+    const policyWrites = capabilities.policyWrites ? String(capabilities.policyWrites) : "disabled";
+    let label = "Policy edit disabled";
+    let decision = "blocked";
+    let description = "Policy edit is disabled for this session.";
+
+    if (!authenticated && operator.authRequired === true) {
+      description = "Sign in with an admin operator token to request audited policy changes.";
+    } else if (!isAdmin) {
+      description = "Admin role required before audited policy edit controls are shown.";
+    } else {
+      label = "Audited policy edit placeholder";
+      decision = "admin";
+      description = "Admin session verified. Policy writes are " + policyWrites + "; audited edit controls will appear here once validation is wired.";
+    }
+
+    return '<article class="rw-row" data-policy-edit-state="' + escapeHtml(decision) + '">' +
+      '<div class="rw-row__head"><div class="rw-row__title">' + escapeHtml(label) + '</div>' + pill(decision, decision) + '</div>' +
+      '<div class="rw-row__meta"><span class="rw-code">policy-edit</span><span>' + escapeHtml(policyWrites) + '</span></div>' +
+      '<div class="rw-muted">' + escapeHtml(description) + '</div>' +
+      '<div class="rw-actions"><button type="button" disabled aria-disabled="true">Policy edit unavailable</button></div>' +
+    '</article>';
   }
 
   function renderPolicyRuleRow(rule) {
@@ -382,6 +448,40 @@ function renderLiveCockpitScript(options: LiveCockpitOptions): string {
     if (value < 1024) return String(value) + " B";
     if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
     return (value / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function normalizeOperator(value) {
+    if (!isObject(value)) return { authenticated: false, authRequired: false, capabilities: {} };
+    return {
+      authenticated: value.authenticated === true,
+      authRequired: value.authRequired === true,
+      principal: isObject(value.principal) ? value.principal : undefined,
+      capabilities: isObject(value.capabilities) ? value.capabilities : {}
+    };
+  }
+
+  function operatorRoles(operator) {
+    const principal = isObject(operator?.principal) ? operator.principal : undefined;
+    return stringList(principal?.roles);
+  }
+
+  function operatorScopes(operator) {
+    const principal = isObject(operator?.principal) ? operator.principal : undefined;
+    if (!principal) return [];
+    return [
+      ...stringList(principal.allowedWorkspaces).map((workspace) => "workspace:" + workspace),
+      ...stringList(principal.allowedUsers).map((user) => "user:" + user)
+    ];
+  }
+
+  function roleTone(role) {
+    if (role === "admin") return "success";
+    if (role === "approver") return "warning";
+    return "neutral";
+  }
+
+  function stringList(value) {
+    return Array.isArray(value) ? value.map((entry) => String(entry)).filter((entry) => entry.length > 0) : [];
   }
 
   function isObject(value) {

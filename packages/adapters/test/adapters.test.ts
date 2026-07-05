@@ -4,10 +4,14 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AgentAdapterRegistry,
+  createBrowserAutomationAdapter,
+  createCiAdapter,
   createCommandAgentAdapter,
   createDefaultAdapterRegistry,
+  createDeploymentAdapter,
   createHermesAdapter,
   createLocalCommandAdapter,
+  createMcpAdapter,
   createOpenClawAdapter
 } from "../src/index.js";
 import type { AgentAdapterEvent } from "../src/index.js";
@@ -182,11 +186,15 @@ describe("OpenClaw and Hermes command adapters", () => {
     });
   });
 
-  it("creates a default registry with local, OpenClaw, and Hermes adapters", () => {
+  it("creates a default registry with the built-in command adapters", () => {
     expect(createDefaultAdapterRegistry().list().map((adapter) => adapter.id)).toEqual([
       "local-command",
       "openclaw",
-      "hermes"
+      "hermes",
+      "browser-automation",
+      "mcp",
+      "ci",
+      "deployment"
     ]);
   });
 
@@ -249,5 +257,115 @@ describe("OpenClaw and Hermes command adapters", () => {
       }
     });
     expect(events.find((event) => event.kind === "adapter_opaque_action" && event.message === "Hermes delegated")).toBeDefined();
+  });
+});
+
+describe("browser automation, MCP, CI, and deployment adapters", () => {
+  it("builds configurable browser automation invocations without requiring a browser tool to be installed", () => {
+    const adapter = createBrowserAutomationAdapter({
+      executable: "browser-runner-test",
+      extraArgs: ["--jsonl"]
+    });
+
+    expect(adapter.buildInvocation({ task: "Capture login", workspace: root, command: "npm run smoke" })).toMatchObject({
+      command: "browser-runner-test",
+      args: ["run", "--workspace", root, "--task", "Capture login", "--command", "npm run smoke", "--jsonl"],
+      cwd: root
+    });
+    expect(adapter.capabilities).toMatchObject({
+      externalTool: true,
+      requiresConfiguredTool: true,
+      eventStream: true,
+      opaqueActions: true,
+      artifacts: true
+    });
+  });
+
+  it("builds configurable MCP invocations without claiming direct MCP tool access", () => {
+    const adapter = createMcpAdapter({
+      executable: "mcp-wrapper-test",
+      baseArgs: ["dispatch"],
+      taskFlag: "--request"
+    });
+
+    expect(adapter.buildInvocation({ task: "List tools", workspace: root, command: "tools/list" })).toMatchObject({
+      command: "mcp-wrapper-test",
+      args: ["dispatch", "--workspace", root, "--request", "List tools", "--command", "tools/list"],
+      cwd: root
+    });
+    expect(adapter.capabilities).toMatchObject({
+      externalTool: true,
+      requiresConfiguredTool: true,
+      eventStream: true,
+      opaqueActions: true
+    });
+  });
+
+  it("builds configurable CI and deployment invocations", () => {
+    const ci = createCiAdapter({
+      executable: "ci-wrapper-test",
+      commandFlag: "--check-command"
+    });
+    const deployment = createDeploymentAdapter({
+      executable: "deploy-wrapper-test",
+      workspaceFlag: "--repo",
+      extraArgs: ["--jsonl"]
+    });
+
+    expect(ci.buildInvocation({ task: "Run checks", workspace: root, command: "npm test" })).toMatchObject({
+      command: "ci-wrapper-test",
+      args: ["run", "--workspace", root, "--task", "Run checks", "--check-command", "npm test"],
+      cwd: root
+    });
+    expect(deployment.buildInvocation({ task: "Deploy preview", workspace: root, command: "deploy --preview" })).toMatchObject({
+      command: "deploy-wrapper-test",
+      args: ["run", "--repo", root, "--task", "Deploy preview", "--command", "deploy --preview", "--jsonl"],
+      cwd: root
+    });
+  });
+
+  it("allows new wrapper adapters to be disabled in the default registry", () => {
+    expect(
+      createDefaultAdapterRegistry({
+        browserAutomation: false,
+        mcp: false,
+        ci: false,
+        deployment: false
+      }).list().map((adapter) => adapter.id)
+    ).toEqual(["local-command", "openclaw", "hermes"]);
+  });
+
+  it("normalizes structured JSONL emitted by the new wrapper foundations", async () => {
+    const script = [
+      "console.log(JSON.stringify({type:'artifact', path:'screenshots/login.png', label:'Login screenshot'}));",
+      "console.log(JSON.stringify({event:'step', message:'Clicked sign in'}));"
+    ].join("");
+    const adapter = createBrowserAutomationAdapter({
+      executable: process.execPath,
+      baseArgs: ["-e", script],
+      workspaceFlag: false,
+      taskFlag: false,
+      commandFlag: false
+    });
+    const events: AgentAdapterEvent[] = [];
+
+    const result = await adapter.runStream?.(
+      {
+        task: "Browser JSONL stream",
+        workspace: root
+      },
+      (event) => {
+        events.push(event);
+      }
+    );
+
+    expect(result?.status).toBe("completed");
+    expect(events.find((event) => event.kind === "adapter_artifact")).toMatchObject({
+      artifact: {
+        uri: "screenshots/login.png",
+        label: "Login screenshot"
+      }
+    });
+    expect(events.find((event) => event.kind === "adapter_opaque_action" && event.message === "Clicked sign in")).toBeDefined();
   });
 });
