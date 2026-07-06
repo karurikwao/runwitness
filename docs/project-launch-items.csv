@@ -9,5 +9,9 @@ Confirm private vulnerability reporting route,P0,Security,Task,Security,Ready,En
 Validate OpenClaw plugin with current OpenClaw CLI,P1,Integrations,Task,Compatibility,Done,Local validation passed with OpenClaw CLI.
 Publish starter Discussions from docs/discussions,P1,Community,Discussion,Adoption,Ready,Use launch-ready drafts.
 Open upstream-listing tracking issues for OpenClaw Hermes Codex Claude,P1,Integrations,External Submission,Compatibility,Ready,Track upstream-official submissions separately.
+Add receipt-flow GIF to README and launch page,P1,Docs,Task,Adoption,Done,Animated launch visual now appears in README and Pages launch route.
+Verify launch GIF on desktop and mobile,P1,Docs,Task,Adoption,Ready,Confirm GIF renders without overflow or layout shift on public Pages route.
+Publish a visual walkthrough update in Discussions,P2,Community,Discussion,Adoption,Backlog,Use launch GIF to invite feedback on the receipt flow.
+Collect early receipt-flow examples for future GIFs,P2,Community,Task,Adoption,Backlog,Ask users for safe sanitized receipt stories that can become launch visuals.
 Add screenshots or terminal GIFs for first receipt flow,P2,Docs,Task,Adoption,Backlog,Helpful but not launch-blocking.
 Add real-runtime compatibility reports from early OpenClaw/Hermes users,P2,Integrations,Task,Compatibility,Backlog,Needed to harden integrations after alpha.

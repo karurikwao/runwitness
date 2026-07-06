@@ -31,6 +31,10 @@ Use this as the launch board plan once the GitHub repository and project are ava
 | Validate OpenClaw plugin with current OpenClaw CLI | P1 | Integrations | Task | Compatibility | Done |
 | Publish starter Discussions from `docs/discussions` | P1 | Community | Discussion | Adoption | Ready |
 | Open upstream-listing tracking issues for OpenClaw, Hermes, Codex, and Claude | P1 | Integrations | External Submission | Compatibility | Ready |
+| Add receipt-flow GIF to README and launch page | P1 | Docs | Task | Adoption | Done |
+| Verify launch GIF on desktop and mobile | P1 | Docs | Task | Adoption | Ready |
+| Publish a visual walkthrough update in Discussions | P2 | Community | Discussion | Adoption | Backlog |
+| Collect early receipt-flow examples for future GIFs | P2 | Community | Task | Adoption | Backlog |
 | Add screenshots or short terminal GIFs for first receipt flow | P2 | Docs | Task | Adoption | Backlog |
 | Add real-runtime compatibility reports from early OpenClaw/Hermes users | P2 | Integrations | Task | Compatibility | Backlog |
 

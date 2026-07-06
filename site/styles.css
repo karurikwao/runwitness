@@ -197,6 +197,30 @@ h1 {
   line-height: 1.5;
 }
 
+.launch-demo {
+  padding: 0 clamp(18px, 5vw, 72px) clamp(34px, 5vw, 58px);
+}
+
+.launch-demo figure {
+  margin: 0;
+}
+
+.launch-demo img {
+  display: block;
+  width: min(100%, 960px);
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.launch-demo figcaption {
+  max-width: 72ch;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .sections {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
