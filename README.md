@@ -14,13 +14,15 @@
   <a href="https://github.com/karurikwao/runwitness/wiki">Wiki</a>
 </p>
 
+<p align="center">
+  <a href="https://runwitness.pages.dev/launch/">
+    <img src="https://raw.githubusercontent.com/karurikwao/runwitness/master/site/assets/runwitness-receipt-flow.gif" alt="Animated RunWitness receipt flow showing task intake, policy review, approval, command capture, and receipt export." width="760">
+  </a>
+</p>
+
 Autonomous agents with receipts.
 
 RunWitness is a local-first control plane for agent work. It lets an agent run a task, records the important actions RunWitness can observe in an append-only ledger, tracks file changes and command results, and exports a proof bundle that a human can inspect later.
-
-<p>
-  <img src="site/assets/runwitness-receipt-flow.gif" alt="Animated RunWitness receipt flow showing task intake, policy review, approval, command capture, and receipt export." width="720">
-</p>
 
 The first milestone is intentionally small:
 
