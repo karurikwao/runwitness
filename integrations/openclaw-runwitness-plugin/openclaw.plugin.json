@@ -1,0 +1,36 @@
+{
+  "id": "runwitness",
+  "name": "RunWitness",
+  "description": "Expose RunWitness receipts, policy checks, sandbox plans, and run lookup as OpenClaw tools.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "workspace": {
+        "type": "string",
+        "description": "Default workspace root for RunWitness tools."
+      },
+      "dataDir": {
+        "type": "string",
+        "description": "Default RunWitness data directory."
+      }
+    }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "runwitness_policy_check",
+      "runwitness_sandbox_plan",
+      "runwitness_run_command",
+      "runwitness_read_run",
+      "runwitness_list_runs"
+    ]
+  },
+  "toolMetadata": {
+    "runwitness_run_command": {
+      "optional": true
+    }
+  }
+}

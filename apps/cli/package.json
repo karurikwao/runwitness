@@ -1,7 +1,7 @@
 {
   "name": "@runwitness/cli",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Command-line interface for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",

@@ -1,5 +1,19 @@
 # RunWitness
 
+<p>
+  <a href="https://github.com/karurikwao/runwitness/actions/workflows/verify.yml"><img alt="CI" src="https://github.com/karurikwao/runwitness/actions/workflows/verify.yml/badge.svg"></a>
+  <a href="package.json"><img alt="Version v0.1.0" src="https://img.shields.io/badge/version-v0.1.0-blue"></a>
+  <a href="LICENSE"><img alt="License Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+  <a href="package.json"><img alt="Node 22.19+" src="https://img.shields.io/badge/node-22.19%2B-35c2a1?logo=node.js"></a>
+</p>
+
+<p>
+  <a href="https://runwitness.pages.dev">Live demo</a> |
+  <a href="https://runwitness.pages.dev/launch">Launch page</a> |
+  <a href="https://github.com/karurikwao/runwitness">GitHub repo</a> |
+  <a href="https://github.com/karurikwao/runwitness/wiki">Wiki</a>
+</p>
+
 Autonomous agents with receipts.
 
 RunWitness is a local-first control plane for agent work. It lets an agent run a task, records the important actions RunWitness can observe in an append-only ledger, tracks file changes and command results, and exports a proof bundle that a human can inspect later.
@@ -15,7 +29,7 @@ RunWitness is not trying to replace OpenClaw, Hermes, Codex, Claude Code, local 
 
 ## Alpha Status
 
-RunWitness is ready for a GitHub alpha launch. It is useful today for local witnessed commands, policy decisions, receipts, sandbox preflight, opt-in Docker/Podman sandbox execution, rollback evidence, adapter event capture, hashed operator auth, and the live local cockpit. It is not a hosted SaaS control plane, universal secret boundary, or complete nested-agent tracer.
+RunWitness is prepared for a GitHub alpha launch. It is useful today for local witnessed commands, policy decisions, receipts, sandbox preflight, opt-in Docker/Podman sandbox execution, rollback evidence, adapter event capture, hashed operator auth, and the live local cockpit. It is not a hosted SaaS control plane, universal secret boundary, or complete nested-agent tracer.
 
 Launch and trust docs:
 
@@ -24,7 +38,21 @@ Launch and trust docs:
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Launch checklist](docs/LAUNCH_CHECKLIST.md)
 - [Alpha release notes](docs/ALPHA_RELEASE_NOTES.md)
+- [Integrations](docs/INTEGRATIONS.md)
+- [Launch project board](docs/GITHUB_PROJECT.md)
+- [Discussion starters](docs/discussions/README.md)
+- [Wiki publishing guide](docs/WIKI_PUBLISHING.md)
+- [GitHub remote setup](docs/GITHUB_REMOTE_SETUP.md)
+- [Launch readiness gaps](docs/LAUNCH_READINESS_GAPS.md)
 - [Examples](examples/README.md)
+
+## Integration Status
+
+RunWitness integrations are official from the RunWitness repo side. That means this repository maintains the repo-official OpenClaw plugin package, Hermes skill pack example, and MCP server for Codex, Claude-compatible, and other MCP-capable hosts.
+
+Do not call these integrations upstream-official for OpenClaw, Hermes/Nous, OpenAI/Codex, Anthropic/Claude, or another ecosystem until that upstream project accepts, lists, or ships the integration from its own official channels.
+
+Later, to make an integration upstream-official, submit or list it through each ecosystem: OpenClaw plugin marketplace/ClawHub if applicable, Hermes skill/catalog route if available, and Codex or Claude MCP docs/examples only if OpenAI or Anthropic accept them.
 
 ## Why It Exists
 
@@ -81,6 +109,7 @@ Inspect other foundations:
 npm run rw -- adapters list
 npm run rw -- skill inspect --file examples/quickstart-skill.yml
 npm run rw -- serve --data-dir .runwitness --host 127.0.0.1 --port 8787
+node packages/mcp-server/dist/src/bin.js --help
 ```
 
 Start the operator API with bearer auth without printing the token:
@@ -105,6 +134,19 @@ Dry-run an enforced container sandbox invocation before executing it:
 
 ```bash
 npm run rw -- sandbox container --image node:22-alpine --dry-run -- node --version
+```
+
+Connect agent runtimes:
+
+```bash
+# OpenClaw plugin package
+npm --workspace @runwitness/openclaw-plugin run plugin:validate
+
+# Hermes skill pack verification, from the repo root
+npm run rw -- skill inspect --file examples/hermes-runwitness-skill-pack/runwitness-skill.yml
+
+# Shared MCP server, after repo build
+node packages/mcp-server/dist/src/bin.js --workspace . --data-dir .runwitness
 ```
 
 Run with network preflight and rollback evidence:
@@ -157,6 +199,7 @@ Implemented foundation:
 - Phase 6 foundation: streaming adapter contract, registry, local-command adapter streaming, OpenClaw/Hermes command-wrapper adapters, opt-in native HTTP/SSE adapters for OpenClaw and Hermes, and generic browser automation, MCP, CI, and deployment command/JSONL wrapper adapters that normalize structured events when available while marking unexposed nested activity as opaque.
 - Phase 7 foundation: static and live operator cockpit renderers plus a local operator API for runs, timelines, approvals, receipts, authenticated Server-Sent Events snapshots, approval actions, operator identity/session display, and policy-lineage views.
 - Phase 8 foundation: identity and secret isolation primitives, including workspace roles, explicit secret grants, local secret broker descriptors, encrypted local vault storage, command-output redaction hooks, `--redact-secret-env`, redacted access audit/receipt records, hashed hosted operator auth configs, user/workspace scoped operator views, scoped operator principals, secret-like environment filtering, and skill secret permission declarations/checks.
+- Integration foundation: repo-official OpenClaw tool plugin package, Hermes skill pack example, and shared stdio MCP server for MCP-capable hosts.
 
 Planned hardening:
 
@@ -181,9 +224,12 @@ packages/
   receipts/   Receipt and proof-bundle exporters.
   sandbox/    Snapshots, preflight, filtered envs, temp workspaces, path safety, rollback, isolation plans/runners.
   skills/     Skill manifests, digests, trust checks, brokered runtime permission checks.
+  mcp-server/ Shared stdio MCP server for RunWitness tools.
   ui/         Shared operator cockpit rendering helpers.
 docs/
 examples/
+integrations/
+  openclaw-runwitness-plugin/ Native OpenClaw tool plugin package.
 tests/
 ```
 

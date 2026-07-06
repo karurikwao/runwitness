@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "runwitness": {
+      "command": "runwitness-mcp-server",
+      "args": [
+        "--workspace",
+        "<absolute-workspace-path>",
+        "--data-dir",
+        "<absolute-data-dir>"
+      ],
+      "env": {}
+    }
+  }
+}

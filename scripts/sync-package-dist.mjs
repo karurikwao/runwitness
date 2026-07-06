@@ -14,7 +14,9 @@ const workspaces = [
   ["packages", "receipts"],
   ["packages", "sandbox"],
   ["packages", "skills"],
-  ["packages", "ui"]
+  ["packages", "mcp-server"],
+  ["packages", "ui"],
+  ["integrations", "openclaw-runwitness-plugin"]
 ];
 
 for (const [group, name] of workspaces) {

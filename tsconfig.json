@@ -62,6 +62,18 @@
       "@runwitness/skills/*": [
         "./packages/skills/src/*"
       ],
+      "@runwitness/mcp-server": [
+        "./packages/mcp-server/src/index.ts"
+      ],
+      "@runwitness/mcp-server/*": [
+        "./packages/mcp-server/src/*"
+      ],
+      "@runwitness/openclaw-plugin": [
+        "./integrations/openclaw-runwitness-plugin/src/index.ts"
+      ],
+      "@runwitness/openclaw-plugin/*": [
+        "./integrations/openclaw-runwitness-plugin/src/*"
+      ],
       "@runwitness/ui": [
         "./packages/ui/src/index.ts"
       ],
@@ -73,6 +85,7 @@
   "include": [
     "apps/**/*.ts",
     "packages/**/*.ts",
+    "integrations/**/*.ts",
     "tests/**/*.ts"
   ],
   "exclude": [

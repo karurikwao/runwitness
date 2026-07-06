@@ -1,0 +1,44 @@
+name: Idea
+description: Suggest an improvement to RunWitness.
+title: "[Idea] "
+labels:
+  - idea
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What agent workflow, receipt, policy, sandbox, or integration problem should RunWitness solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What would you like to see?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Receipts
+        - Policy
+        - Sandbox
+        - Skills
+        - OpenClaw
+        - Hermes
+        - MCP hosts
+        - Web cockpit
+        - Packaging
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety
+      options:
+        - label: I removed secrets, private logs, and private receipt contents.
+          required: true

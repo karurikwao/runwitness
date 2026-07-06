@@ -1,7 +1,7 @@
 {
   "name": "@runwitness/desktop",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Desktop shell for RunWitness operator experiences.",
   "license": "Apache-2.0",
   "type": "module",

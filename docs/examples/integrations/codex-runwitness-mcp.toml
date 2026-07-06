@@ -1,0 +1,7 @@
+[mcp_servers.runwitness]
+command = "runwitness-mcp-server"
+args = ["--workspace", "<absolute-workspace-path>", "--data-dir", "<absolute-data-dir>"]
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+enabled = true
+default_tools_approval_mode = "prompt"

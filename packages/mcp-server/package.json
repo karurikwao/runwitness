@@ -1,0 +1,36 @@
+{
+  "name": "@runwitness/mcp-server",
+  "version": "0.1.0",
+  "private": false,
+  "description": "MCP stdio server exposing RunWitness receipts, policy, sandbox, and run tools.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "bin": {
+    "runwitness-mcp-server": "./dist/src/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest run --root ../.. packages/mcp-server/test"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@runwitness/core": "0.1.0",
+    "@runwitness/policy": "0.1.0",
+    "@runwitness/sandbox": "0.1.0"
+  }
+}

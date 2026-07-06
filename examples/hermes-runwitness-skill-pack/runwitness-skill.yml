@@ -1,0 +1,33 @@
+type: runwitness.skill.v1
+name: hermes-runwitness
+version: 0.1.0
+description: Hermes skill instructions for routing auditable work through RunWitness receipts, policies, timelines, and optional operator review.
+author: RunWitness examples
+entrypoints:
+  hermes: examples/hermes-runwitness-skill-pack/SKILL.md
+permissions:
+  filesystem:
+    read:
+      - examples/hermes-runwitness-skill-pack
+      - README.md
+      - docs
+  network:
+    allow:
+      - localhost
+      - 127.0.0.1
+      - ::1
+  shell:
+    ask:
+      - npm run rw -- *
+      - node *dist/apps/cli/src/bin.js *
+      - node *packages/mcp-server/dist/src/bin.js *
+      - runwitness-mcp-server *
+      - runwitness *
+      - mcp run *
+    deny:
+      - npm publish*
+      - git push*
+      - rm -rf*
+      - Remove-Item * -Recurse*
+  secrets:
+    - RUNWITNESS_OPERATOR_TOKEN

@@ -1,0 +1,49 @@
+version: 1
+shell:
+  allow:
+    - npm test
+    - npm run test
+    - npm run check
+    - npm run build
+    - npm run rw -- skill inspect*
+    - npm run rw -- policy check*
+    - npm run rw -- adapters list
+    - npm run rw -- timeline*
+  ask:
+    - npm install*
+    - npm ci*
+    - npm run rw -- run*
+    - npm run rw -- serve*
+    - mcp run*
+    - runwitness run*
+    - runwitness serve*
+  deny:
+    - npm publish*
+    - git push*
+    - gh release*
+    - docker push*
+    - wrangler deploy*
+    - vercel deploy*
+    - fly deploy*
+filesystem:
+  read:
+    - .
+  write:
+    - .
+  protected:
+    - .env
+    - .git
+    - .runwitness
+    - examples/hermes-runwitness-skill-pack/runwitness-policy.yml
+network:
+  allow:
+    - localhost
+    - 127.0.0.1
+    - ::1
+defaults:
+  undeclaredFileRead: ask
+  undeclaredFileWrite: ask
+  undeclaredNetwork: ask
+classifier:
+  denyHighImpactRecursiveDelete: true
+  denySecretNetworkExfil: true

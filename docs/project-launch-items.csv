@@ -1,0 +1,13 @@
+Title,Priority,Area,Type,Risk,Status,Notes
+Confirm public repo remote and default branch protection,P0,Release,Task,Release,Ready,Needed before public launch.
+Confirm GitHub Discussions is enabled and categories exist,P0,Community,Task,Adoption,Ready,Discussion form filenames must match category slugs.
+Publish wiki pages from wiki/,P0,Docs,Task,Adoption,Ready,Copy or push wiki source after GitHub Wiki is enabled.
+Run npm ci and npm run verify on a fresh clone,P0,Release,Task,Release,Ready,Required clean-environment check.
+Confirm GitHub Actions Verify passes on launch branch,P0,Release,Task,Release,Ready,Do not rely only on local verification.
+Review package ownership before real npm publish,P0,Packaging,Task,Release,Ready,Pack dry-run is ready; real publish remains manual.
+Confirm private vulnerability reporting route,P0,Security,Task,Security,Ready,Enable GitHub private vulnerability reporting or working security email.
+Validate OpenClaw plugin with current OpenClaw CLI,P1,Integrations,Task,Compatibility,Done,Local validation passed with OpenClaw CLI.
+Publish starter Discussions from docs/discussions,P1,Community,Discussion,Adoption,Ready,Use launch-ready drafts.
+Open upstream-listing tracking issues for OpenClaw Hermes Codex Claude,P1,Integrations,External Submission,Compatibility,Ready,Track upstream-official submissions separately.
+Add screenshots or terminal GIFs for first receipt flow,P2,Docs,Task,Adoption,Backlog,Helpful but not launch-blocking.
+Add real-runtime compatibility reports from early OpenClaw/Hermes users,P2,Integrations,Task,Compatibility,Backlog,Needed to harden integrations after alpha.

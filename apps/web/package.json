@@ -1,7 +1,7 @@
 {
   "name": "@runwitness/web",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Web cockpit rendering surfaces for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",

@@ -23,7 +23,8 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "integrations/*"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/sync-package-dist.mjs",

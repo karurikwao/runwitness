@@ -1,17 +1,17 @@
 # npm Publishing Preparation
 
-RunWitness is prepared for npm packaging checks, but npm publishing is intentionally disabled by default.
+RunWitness is prepared for npm packaging checks, but real npm publishing still requires an explicit manual release step.
 
 ## Current Safety Rules
 
-- Every root and workspace package must keep `"private": true` unless `RELEASE_NPM=true` is set for an intentional release-readiness run.
+- The root package must stay `"private": true`; publishable workspace packages are intentionally public-ready.
 - The manual GitHub Actions workflow at `.github/workflows/release.yml` performs verification and `npm pack --dry-run`; it does not publish.
-- Scoped workspace packages are prepared with `publishConfig.access: "public"` so a future release can be explicit about public access.
+- Scoped workspace packages use `publishConfig.access: "public"` so a future release is explicit about public access.
 - Package `files` allowlists include built `dist` output and package-specific assets only.
 
 ## Local Checks
 
-Run the metadata and private-package guard:
+Run the metadata and package-visibility guard:
 
 ```sh
 npm run release:check

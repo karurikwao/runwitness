@@ -1,7 +1,7 @@
 {
   "name": "@runwitness/skills",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Skill manifest, trust, and runtime permission primitives for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",

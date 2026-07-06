@@ -1,0 +1,33 @@
+name: Show and tell
+description: Share a safe example of RunWitness in use.
+title: "[Show and tell] "
+labels:
+  - show-and-tell
+body:
+  - type: textarea
+    id: story
+    attributes:
+      label: What did RunWitness help you verify?
+      description: Share a safe, sanitized example.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence type
+      options:
+        - Receipt
+        - Policy decision
+        - Sandbox plan
+        - Rollback evidence
+        - Adapter event stream
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety
+      options:
+        - label: I removed secrets, private logs, private file paths, and private receipt contents.
+          required: true

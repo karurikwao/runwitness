@@ -1,0 +1,43 @@
+name: Q&A
+description: Ask a setup, usage, or integration question.
+title: "[Q&A] "
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include commands, versions, and sanitized output if useful.
+      placeholder: OS, shell, Node version, command, sanitized error...
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - First install
+        - Receipts
+        - Policy
+        - Sandbox
+        - OpenClaw plugin
+        - Hermes skill pack
+        - MCP server
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety
+      options:
+        - label: I removed secrets, private logs, and private receipt contents.
+          required: true

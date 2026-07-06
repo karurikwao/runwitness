@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RunWitness | Autonomous agents with receipts</title>
+    <meta name="description" content="RunWitness is a local-first witness layer for autonomous agent work.">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">RunWitness</div>
+        <nav class="nav" aria-label="Launch links">
+          <a href="/">Live demo</a>
+          <span>|</span>
+          <a href="/launch/">Launch page</a>
+          <span>|</span>
+          <a href="https://github.com/karurikwao/runwitness">GitHub repo</a>
+          <span>|</span>
+          <a href="https://github.com/karurikwao/runwitness/wiki">Wiki</a>
+        </nav>
+      </header>
+      <main>
+        <section class="hero">
+          <div>
+            <div class="eyebrow">Autonomous agents with receipts</div>
+            <h1>RunWitness</h1>
+            <p class="lead">RunWitness is a local-first control plane for agent work. Let the agent do the work; let RunWitness record policy decisions, commands, file changes, approvals, timelines, and receipts.</p>
+            <div class="badges" aria-label="Project badges">
+              <img alt="CI" src="https://github.com/karurikwao/runwitness/actions/workflows/verify.yml/badge.svg">
+              <img alt="Version v0.1.0" src="https://img.shields.io/badge/version-v0.1.0-blue">
+              <img alt="License Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+              <img alt="Node 22.19+" src="https://img.shields.io/badge/node-22.19%2B-35c2a1?logo=node.js">
+            </div>
+            <div class="actions">
+              <a class="button" href="https://github.com/karurikwao/runwitness">Open GitHub</a>
+              <a class="button secondary" href="/launch/">Read launch notes</a>
+            </div>
+          </div>
+          <aside class="receipt" aria-label="Example RunWitness receipt">
+            <div class="receipt__head">
+              <span>rw_alpha_001</span>
+              <span class="status">verified</span>
+            </div>
+            <div class="receipt__body">
+              <div class="metric"><span>commands</span><div class="bar"><i style="width: 86%"></i></div></div>
+              <div class="metric"><span>files tracked</span><div class="bar blue"><i style="width: 68%"></i></div></div>
+              <div class="metric"><span>approvals</span><div class="bar violet"><i style="width: 42%"></i></div></div>
+              <div class="terminal">$ runwitness run --task "Ship safely"<br>receipt: .runwitness/receipts/rw_alpha_001.json<br>tests_passed: yes</div>
+            </div>
+          </aside>
+        </section>
+        <section class="sections" aria-label="Product pillars">
+          <article class="section">
+            <h2>Observe</h2>
+            <p>Capture commands, adapter events, file diffs, test signals, and receipt exports in a local SQLite ledger.</p>
+          </article>
+          <article class="section">
+            <h2>Approve</h2>
+            <p>Classify risky actions through policies and preserve approval decisions in the run timeline.</p>
+          </article>
+          <article class="section">
+            <h2>Prove</h2>
+            <p>Export JSON and Markdown receipts that give humans something concrete to review after agent work.</p>
+          </article>
+        </section>
+      </main>
+      <footer>Repo-official integrations are maintained by RunWitness. Upstream-official status requires acceptance by each upstream ecosystem.</footer>
+    </div>
+  </body>
+</html>

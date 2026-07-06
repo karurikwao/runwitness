@@ -1,0 +1,50 @@
+{
+  "name": "@runwitness/openclaw-plugin",
+  "version": "0.1.0",
+  "private": false,
+  "description": "OpenClaw tool plugin for RunWitness receipts, policy checks, sandbox plans, and run lookup.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "plugin:build": "npm run build && openclaw plugins build --entry ./dist/src/index.js",
+    "plugin:validate": "npm run build && openclaw plugins validate --entry ./dist/src/index.js",
+    "test": "vitest run --root ../.. tests/openclaw-plugin-package.test.ts"
+  },
+  "dependencies": {
+    "@runwitness/mcp-server": "0.1.0",
+    "typebox": "^1.1.38"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "openclaw": "^2026.6.11",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/src/index.js"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,7 +1,7 @@
 {
   "name": "@runwitness/ui",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Shared operator cockpit rendering helpers for RunWitness.",
   "license": "Apache-2.0",
   "type": "module",

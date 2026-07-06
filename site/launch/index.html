@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RunWitness Alpha Launch</title>
+    <meta name="description" content="RunWitness alpha launch notes and integration status.">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">RunWitness Alpha</div>
+        <nav class="nav" aria-label="Launch links">
+          <a href="/">Live demo</a>
+          <span>|</span>
+          <a href="/launch/">Launch page</a>
+          <span>|</span>
+          <a href="https://github.com/karurikwao/runwitness">GitHub repo</a>
+          <span>|</span>
+          <a href="https://github.com/karurikwao/runwitness/wiki">Wiki</a>
+        </nav>
+      </header>
+      <main>
+        <section class="hero">
+          <div>
+            <div class="eyebrow">Alpha launch</div>
+            <h1>Agent work you can inspect.</h1>
+            <p class="lead">RunWitness launches as a GitHub alpha for local witnessed commands, policy checks, receipts, sandbox preflight, rollback evidence, adapter event capture, local operator APIs, and agent runtime integrations.</p>
+            <div class="badges" aria-label="Project badges">
+              <img alt="CI" src="https://github.com/karurikwao/runwitness/actions/workflows/verify.yml/badge.svg">
+              <img alt="Version v0.1.0" src="https://img.shields.io/badge/version-v0.1.0-blue">
+              <img alt="License Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue">
+              <img alt="Node 22.19+" src="https://img.shields.io/badge/node-22.19%2B-35c2a1?logo=node.js">
+            </div>
+            <div class="actions">
+              <a class="button" href="https://github.com/karurikwao/runwitness">Clone RunWitness</a>
+              <a class="button secondary" href="https://github.com/karurikwao/runwitness/wiki">Read the wiki</a>
+            </div>
+          </div>
+          <aside class="receipt" aria-label="Launch checklist">
+            <div class="receipt__head">
+              <span>Launch checklist</span>
+              <span class="status">ready locally</span>
+            </div>
+            <div class="receipt__body">
+              <div class="metric"><span>verify</span><div class="bar"><i style="width: 100%"></i></div></div>
+              <div class="metric"><span>OpenClaw</span><div class="bar blue"><i style="width: 100%"></i></div></div>
+              <div class="metric"><span>MCP</span><div class="bar violet"><i style="width: 100%"></i></div></div>
+              <div class="terminal">npm run verify<br>npm run pack:dry-run<br>npm --workspace @runwitness/openclaw-plugin run plugin:validate</div>
+            </div>
+          </aside>
+        </section>
+        <section class="sections" aria-label="Launch notes">
+          <article class="section">
+            <h2>Repo-official integrations</h2>
+            <p>RunWitness ships an OpenClaw plugin package, Hermes skill pack example, and stdio MCP server for MCP-capable hosts.</p>
+          </article>
+          <article class="section">
+            <h2>Trust wording</h2>
+            <p>These integrations are official from the RunWitness side. Upstream-official status waits for each upstream project to accept, list, or ship them.</p>
+          </article>
+          <article class="section">
+            <h2>Alpha limits</h2>
+            <p>RunWitness is not a hosted SaaS control plane, universal OS sandbox, or complete nested-agent tracer.</p>
+          </article>
+        </section>
+      </main>
+      <footer>For security reports, use GitHub private vulnerability reporting or the project security contact.</footer>
+    </div>
+  </body>
+</html>

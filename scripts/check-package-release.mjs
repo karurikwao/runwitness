@@ -96,8 +96,12 @@ function checkPackage(pkg) {
   requireString(manifest.version, `${label} version`);
   requireString(manifest.license, `${label} license`);
 
-  if (!releaseNpm && manifest.private !== true) {
-    errors.push(`${label} must keep "private": true unless RELEASE_NPM=true.`);
+  if (!pkg.workspace && manifest.private !== true) {
+    errors.push(`${label} must keep "private": true.`);
+  }
+
+  if (pkg.workspace && releaseNpm && manifest.publishConfig?.access === "public" && manifest.private === true) {
+    errors.push(`${label} is marked for public npm release but still has "private": true.`);
   }
 
   if (pkg.workspace) {
