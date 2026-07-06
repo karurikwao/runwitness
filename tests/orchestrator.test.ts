@@ -314,9 +314,9 @@ describe("runWitnessedCommand", () => {
 
     const result = await runWitnessedCommand({
       task: "Sandbox write",
-      command: "node -e \"require('node:fs').writeFileSync('created-in-sandbox.txt', process.env.SECRET_TOKEN || 'filtered')\"",
+      command: `${process.execPath} -e "require('node:fs').writeFileSync('created-in-sandbox.txt', process.env.SECRET_TOKEN || 'filtered')"`,
       commandParts: [
-        "node",
+        process.execPath,
         "-e",
         "require('node:fs').writeFileSync('created-in-sandbox.txt', process.env.SECRET_TOKEN || 'filtered')"
       ],
