@@ -4,17 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>RunWitness Alpha Launch</title>
-    <meta name="description" content="RunWitness alpha launch notes and integration status.">
+    <meta name="description" content="RunWitness alpha launch notes, proof links, and integration status.">
     <link rel="stylesheet" href="/styles.css">
   </head>
-  <body>
+  <body class="launch-page">
     <div class="shell">
       <header class="topbar">
-        <div class="brand">RunWitness Alpha</div>
+        <a class="brand" href="/">RunWitness Alpha</a>
         <nav class="nav" aria-label="Launch links">
           <a href="/">Live demo</a>
           <span>|</span>
-          <a href="/launch/">Launch page</a>
+          <a href="/launch/" aria-current="page">Launch page</a>
           <span>|</span>
           <a href="https://github.com/karurikwao/runwitness">GitHub repo</a>
           <span>|</span>
@@ -22,11 +22,11 @@
         </nav>
       </header>
       <main>
-        <section class="hero">
-          <div>
+        <section class="launch-hero" aria-label="RunWitness alpha launch">
+          <div class="launch-copy">
             <div class="eyebrow">Alpha launch</div>
-            <h1>Agent work you can inspect.</h1>
-            <p class="lead">RunWitness launches as a GitHub alpha for local witnessed commands, policy checks, receipts, sandbox preflight, rollback evidence, adapter event capture, local operator APIs, and agent runtime integrations.</p>
+            <h1>Autonomous agents with receipts.</h1>
+            <p class="lead">RunWitness is shipping as a local-first witness layer for agent work: run the task, observe every important action, approve risky steps, and export a receipt humans can inspect.</p>
             <div class="badges" aria-label="Project badges">
               <img alt="CI" src="https://github.com/karurikwao/runwitness/actions/workflows/verify.yml/badge.svg">
               <img alt="Version v0.1.0" src="https://img.shields.io/badge/version-v0.1.0-blue">
@@ -34,42 +34,81 @@
               <img alt="Node 22.19+" src="https://img.shields.io/badge/node-22.19%2B-35c2a1?logo=node.js">
             </div>
             <div class="actions">
-              <a class="button" href="https://github.com/karurikwao/runwitness">Clone RunWitness</a>
-              <a class="button secondary" href="https://github.com/karurikwao/runwitness/wiki">Read the wiki</a>
+              <a class="button" href="/">Try the demo</a>
+              <a class="button secondary" href="https://github.com/karurikwao/runwitness">Clone on GitHub</a>
+              <a class="button tertiary" href="https://github.com/users/karurikwao/projects/5">Project board</a>
             </div>
           </div>
-          <aside class="receipt" aria-label="Launch checklist">
-            <div class="receipt__head">
-              <span>Launch checklist</span>
-              <span class="status">ready locally</span>
-            </div>
-            <div class="receipt__body">
-              <div class="metric"><span>verify</span><div class="bar"><i style="width: 100%"></i></div></div>
-              <div class="metric"><span>OpenClaw</span><div class="bar blue"><i style="width: 100%"></i></div></div>
-              <div class="metric"><span>MCP</span><div class="bar violet"><i style="width: 100%"></i></div></div>
-              <div class="terminal">npm run verify<br>npm run pack:dry-run<br>npm --workspace @runwitness/openclaw-plugin run plugin:validate</div>
-            </div>
-          </aside>
-        </section>
-        <section class="launch-demo" aria-label="Receipt flow preview">
-          <figure>
+          <figure class="launch-media">
             <img src="/assets/runwitness-receipt-flow.gif" alt="Animated RunWitness receipt flow showing task intake, policy review, approval, command capture, and receipt export.">
             <figcaption>From task to policy decision to receipt, RunWitness keeps the evidence visible.</figcaption>
           </figure>
         </section>
-        <section class="sections" aria-label="Launch notes">
-          <article class="section">
-            <h2>Repo-official integrations</h2>
-            <p>RunWitness ships an OpenClaw plugin package, Hermes skill pack example, and stdio MCP server for MCP-capable hosts.</p>
+
+        <section class="launch-grid" aria-label="Launch details">
+          <article class="launch-panel wide">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Shipping now</p>
+                <h2>What the alpha includes</h2>
+              </div>
+              <span class="pill">v0.1.0</span>
+            </div>
+            <ul class="check-list">
+              <li>SQLite run ledger with append-only events and timeline APIs.</li>
+              <li>Policy checks, approval records, sandbox preflight, and rollback evidence.</li>
+              <li>Receipt JSON and Markdown exports with file, command, and test evidence.</li>
+              <li>RunWitness OpenClaw plugin, Hermes skill pack example, and stdio MCP server.</li>
+            </ul>
           </article>
-          <article class="section">
-            <h2>Trust wording</h2>
-            <p>These integrations are official from the RunWitness side. Upstream-official status waits for each upstream project to accept, list, or ship them.</p>
+          <article class="launch-panel">
+            <p class="panel-kicker">Try it locally</p>
+            <h2>First command</h2>
+            <div class="terminal">$ git clone https://github.com/karurikwao/runwitness.git<br>$ cd runwitness<br>$ npm ci<br>$ npm run verify</div>
           </article>
-          <article class="section">
-            <h2>Alpha limits</h2>
-            <p>RunWitness is not a hosted SaaS control plane, universal OS sandbox, or complete nested-agent tracer.</p>
+          <article class="launch-panel">
+            <p class="panel-kicker">Proof links</p>
+            <h2>Launch surfaces</h2>
+            <div class="link-stack">
+              <a href="https://github.com/karurikwao/runwitness/actions">GitHub Actions</a>
+              <a href="https://github.com/karurikwao/runwitness/discussions">Discussions</a>
+              <a href="https://github.com/users/karurikwao/projects/5">Alpha project board</a>
+              <a href="https://github.com/karurikwao/runwitness/wiki/Home">Wiki home</a>
+            </div>
           </article>
+          <article class="launch-panel">
+            <p class="panel-kicker">Ecosystem status</p>
+            <h2>Compatibility wording</h2>
+            <p>RunWitness integrations are official from the RunWitness repo side. OpenClaw, Hermes, OpenAI, Anthropic, and other hosts become upstream-official only if those ecosystems accept, list, or ship them.</p>
+          </article>
+          <article class="launch-panel">
+            <p class="panel-kicker">Alpha limits</p>
+            <h2>Not pretending</h2>
+            <p>This is not a hosted SaaS control plane, universal OS sandbox, complete nested-agent tracer, or upstream-endorsed package across every host.</p>
+          </article>
+        </section>
+
+        <section class="release-band" aria-label="Launch milestones">
+          <div>
+            <span>01</span>
+            <strong>Witness</strong>
+            <p>Run commands and collect observable events.</p>
+          </div>
+          <div>
+            <span>02</span>
+            <strong>Govern</strong>
+            <p>Apply policies and preserve approvals.</p>
+          </div>
+          <div>
+            <span>03</span>
+            <strong>Integrate</strong>
+            <p>Bridge OpenClaw, Hermes-style skills, MCP hosts, and local CLIs.</p>
+          </div>
+          <div>
+            <span>04</span>
+            <strong>Prove</strong>
+            <p>Export receipts, rollback bundles, and launch evidence.</p>
+          </div>
         </section>
       </main>
       <footer>For security reports, use GitHub private vulnerability reporting or the project security contact.</footer>
