@@ -32,7 +32,7 @@
     "check:config": "tsc --showConfig -p tsconfig.json",
     "test": "vitest run",
     "rw": "tsx apps/cli/src/bin.ts",
-    "verify": "npm run check && npm run test && npm run build && npm run release:check:built",
+    "verify": "npm run check && npm run build && npm run test && npm run release:check:built",
     "release:check": "node scripts/check-package-release.mjs",
     "release:check:built": "node scripts/check-package-release.mjs --built",
     "pack:dry-run": "npm pack --workspaces --dry-run --json",
